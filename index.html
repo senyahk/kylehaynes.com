@@ -39,11 +39,22 @@
       { el: document.getElementById('V.v.V'), vx: 2, vy: 2 },
       { el: document.getElementById('resume'), vx: -1.5, vy: 1.5 }
     ];
-  
+
+
+
+    // Open V.v.V on click
+    elements[2].el.addEventListener('click', () => {
+      window.open('https://www.youtube.com/watch?v=dQw4w9WgXcQ&ab_channel=RickAstley', '_blank');
+    });
+    
     // Open resume on click
     elements[3].el.addEventListener('click', () => {
       window.open('resume.pdf', '_blank');
     });
+
+    
+
+
   
     window.onload = () => {
       const w = window.innerWidth;
