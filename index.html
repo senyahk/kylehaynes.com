@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>kyle</title>
+  <title>kyle haynes</title>
   <style>
     html, body {
       margin: 0;
@@ -12,7 +12,7 @@
       height: 100%;
       width: 100%;
     }
-    #kyle {
+    .word {
       position: absolute;
       font-size: 48px;
       color: white;
@@ -22,26 +22,31 @@
   </style>
 </head>
 <body>
-  <div id="kyle">kyle</div>
+  <div id="kyle" class="word">kyle</div>
+  <div id="haynes" class="word">haynes</div>
 
   <script>
-    const el = document.getElementById('kyle');
-    let x = 100, y = 100;
-    let vx = 2, vy = 2;
+    const elements = [
+      { el: document.getElementById('kyle'), x: 100, y: 100, vx: 2, vy: 2 },
+      { el: document.getElementById('haynes'), x: 200, y: 200, vx: -2.5, vy: 1.5 }
+    ];
 
     function move() {
       const w = window.innerWidth;
       const h = window.innerHeight;
-      const rect = el.getBoundingClientRect();
 
-      x += vx;
-      y += vy;
+      elements.forEach(obj => {
+        const rect = obj.el.getBoundingClientRect();
 
-      if (x + rect.width >= w || x <= 0) vx *= -1;
-      if (y + rect.height >= h || y <= 0) vy *= -1;
+        obj.x += obj.vx;
+        obj.y += obj.vy;
 
-      el.style.left = `${x}px`;
-      el.style.top = `${y}px`;
+        if (obj.x + rect.width >= w || obj.x <= 0) obj.vx *= -1;
+        if (obj.y + rect.height >= h || obj.y <= 0) obj.vy *= -1;
+
+        obj.el.style.left = `${obj.x}px`;
+        obj.el.style.top = `${obj.y}px`;
+      });
 
       requestAnimationFrame(move);
     }
