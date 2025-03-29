@@ -18,18 +18,31 @@
       color: white;
       font-family: sans-serif;
       user-select: none;
+      cursor: default;
+    }
+    .resume {
+      font-style: italic;
+      text-decoration: underline;
+      cursor: pointer;
     }
   </style>
 </head>
 <body>
   <div id="kyle" class="word">kyle</div>
   <div id="haynes" class="word">haynes</div>
+  <div id="resume" class="word resume">resume</div>
 
   <script>
     const elements = [
       { el: document.getElementById('kyle'), x: 100, y: 100, vx: 2, vy: 2 },
-      { el: document.getElementById('haynes'), x: 200, y: 200, vx: -2.5, vy: 1.5 }
+      { el: document.getElementById('haynes'), x: 200, y: 200, vx: -2.5, vy: 1.5 },
+      { el: document.getElementById('resume'), x: 300, y: 150, vx: 2.2, vy: -1.8 }
     ];
+
+    // Open resume PDF on click
+    elements[2].el.addEventListener('click', () => {
+      window.open('resume.pdf', '_blank');
+    });
 
     function move() {
       const w = window.innerWidth;
