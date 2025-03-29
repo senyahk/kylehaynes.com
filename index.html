@@ -34,38 +34,49 @@
 
   <script>
     const elements = [
-      { el: document.getElementById('kyle'), x: 100, y: 100, vx: 2, vy: 2 },
-      { el: document.getElementById('haynes'), x: 200, y: 200, vx: -2.5, vy: 1.5 },
-      { el: document.getElementById('V.v.V'), x: 200, y: 200, vx: -2.5, vy: -2.5 },
-      { el: document.getElementById('resume'), x: 300, y: 150, vx: 2.2, vy: -1.8 }
+      { el: document.getElementById('kyle'), vx: 2, vy: 2 },
+      { el: document.getElementById('haynes'), vx: -2.5, vy: 1.5 },
+      { el: document.getElementById('resume'), vx: 2.2, vy: -1.8 }
     ];
-
-    // Open resume PDF on click
-    elements[3].el.addEventListener('click', () => {
+  
+    // Open resume on click
+    elements[2].el.addEventListener('click', () => {
       window.open('resume.pdf', '_blank');
     });
-
+  
+    window.onload = () => {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+  
+      elements.forEach((obj, i) => {
+        const rect = obj.el.getBoundingClientRect();
+        obj.x = (w - rect.width) / 2 + (i * 50 - 50); // slightly spread out
+        obj.y = (h - rect.height) / 2 + (i * 30 - 30);
+      });
+  
+      move();
+    };
+  
     function move() {
       const w = window.innerWidth;
       const h = window.innerHeight;
-
+  
       elements.forEach(obj => {
         const rect = obj.el.getBoundingClientRect();
-
+  
         obj.x += obj.vx;
         obj.y += obj.vy;
-
+  
         if (obj.x + rect.width >= w || obj.x <= 0) obj.vx *= -1;
         if (obj.y + rect.height >= h || obj.y <= 0) obj.vy *= -1;
-
+  
         obj.el.style.left = `${obj.x}px`;
         obj.el.style.top = `${obj.y}px`;
       });
-
+  
       requestAnimationFrame(move);
     }
-
-    move();
   </script>
+
 </body>
 </html>
