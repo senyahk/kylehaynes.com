@@ -27,15 +27,14 @@
   <script>
     const lines = [
       "hi my name is kyle",
-      "welcome to my website."
+      "welcome to my website"
     ];
 
     const letters = [];
-    const startDelay = 5000; // ms
+    const startDelay = 5000;
     let fallStartTime = null;
     let fallingIndex = 0;
 
-    // Create and position letters
     function layoutText() {
       const centerX = window.innerWidth / 2;
       const lineHeight = window.innerHeight / 3;
@@ -43,26 +42,33 @@
 
       lines.forEach((line, lineIndex) => {
         const lineLetters = line.split('');
-        const spans = lineLetters.map((char, i) => {
+        const spans = lineLetters.map(char => {
           const span = document.createElement('span');
           span.classList.add('letter');
           span.textContent = char === ' ' ? '\u00A0' : char;
           document.body.appendChild(span);
-
-          const width = span.getBoundingClientRect().width;
-          return { el: span, width };
+          return { el: span };
         });
 
-        const totalWidth = spans.reduce((sum, l) => sum + l.width, 0);
+        // measure widths
+        spans.forEach(span => {
+          const rect = span.el.getBoundingClientRect();
+          span.width = rect.width;
+        });
+
+        const totalWidth = spans.reduce((sum, s) => sum + s.width, 0);
         let x = centerX - totalWidth / 2;
         let y = lineHeight + spacingY * lineIndex;
 
         spans.forEach(obj => {
           obj.x = x;
           obj.y = y;
+          obj.baseX = x;
           obj.vy = 0;
+          obj.vx = (Math.random() - 0.5) * 4; // random sideways drift
           obj.falling = false;
           obj.landed = false;
+          obj.bounced = false;
           obj.el.style.transform = `translate(${x}px, ${y}px)`;
           x += obj.width;
           letters.push(obj);
@@ -73,16 +79,14 @@
     layoutText();
     window.addEventListener('resize', () => location.reload());
 
-    // Begin fall sequence
     setTimeout(() => {
       fallStartTime = Date.now();
     }, startDelay);
 
     function animate() {
-      const bottomY = window.innerHeight - 50;
+      const floor = window.innerHeight - 40;
       const now = Date.now();
 
-      // Trigger next letter to fall every 100ms
       if (fallStartTime && now - fallStartTime > fallingIndex * 100 && fallingIndex < letters.length) {
         letters[letters.length - 1 - fallingIndex].falling = true;
         fallingIndex++;
@@ -92,11 +96,19 @@
         if (letter.falling && !letter.landed) {
           letter.vy += 0.5; // gravity
           letter.y += letter.vy;
+          letter.x += letter.vx;
 
-          if (letter.y >= bottomY) {
-            letter.y = bottomY;
-            letter.vy = 0;
-            letter.landed = true;
+          // bounce effect
+          if (letter.y >= floor) {
+            if (!letter.bounced) {
+              letter.vy = -letter.vy * 0.3; // small bounce
+              letter.y = floor;
+              letter.bounced = true;
+            } else {
+              letter.vy = 0;
+              letter.y = floor;
+              letter.landed = true;
+            }
           }
 
           letter.el.style.transform = `translate(${letter.x}px, ${letter.y}px)`;
