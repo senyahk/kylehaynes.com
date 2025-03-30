@@ -40,7 +40,7 @@
   <script>
     const lines = [
       "hi my name is kyle",
-      "welcome to my website"
+      "welcome to my website."
     ];
 
     const letters = [];
@@ -56,6 +56,7 @@
       const centerX = window.innerWidth / 2;
       const lineHeight = window.innerHeight / 3;
       const spacingY = 60;
+      let letterCount = 0;
 
       lines.forEach((line, lineIndex) => {
         const lineLetters = line.split('');
@@ -76,7 +77,7 @@
         let x = centerX - totalWidth / 2;
         let y = lineHeight + spacingY * lineIndex;
 
-        spans.forEach(obj => {
+        spans.forEach((obj, i) => {
           obj.x = x;
           obj.y = y;
           obj.baseX = x;
@@ -87,28 +88,25 @@
           obj.bounced = false;
 
           obj.el.style.transform = `translate(${x}px, ${y}px)`;
-
-          // Save indexes of "kyle" (last 4 letters)
-          if (obj.el.textContent.toLowerCase() === "k" ||
-              obj.el.textContent.toLowerCase() === "y" ||
-              obj.el.textContent.toLowerCase() === "l" ||
-              obj.el.textContent.toLowerCase() === "e") {
-            kyleIndexes.push(letters.length); // future index
-          }
-
           letters.push(obj);
           x += obj.width;
+
+          letterCount++;
         });
       });
 
-      // Ensure "kyle" comes last in fallOrder
+      // Get the last 4 letters only (which should be "kyle")
+      const total = letters.length;
+      kyleIndexes = [total - 4, total - 3, total - 2, total - 1];
+
+      // Randomize all other letters
       const allIndexes = [...Array(letters.length).keys()];
       const normalIndexes = allIndexes.filter(i => !kyleIndexes.includes(i));
-      // Shuffle normal ones
       for (let i = normalIndexes.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [normalIndexes[i], normalIndexes[j]] = [normalIndexes[j], normalIndexes[i]];
       }
+
       fallOrder = [...normalIndexes, ...kyleIndexes];
     }
 
@@ -155,7 +153,7 @@
           if (letter.y >= floor) {
             if (!letter.bounced) {
               letter.vy = -letter.vy * 0.3;
-              letter.vx += (Math.random() - 0.5) * 2; // gentle bounce
+              letter.vx += (Math.random() - 0.5) * 2;
               letter.y = floor;
               letter.bounced = true;
             } else {
@@ -172,7 +170,7 @@
       requestAnimationFrame(animate);
     }
 
-    // Input tracking
+    // Touch + mouse repulsion tracking
     document.addEventListener('mousemove', e => {
       touchX = e.clientX;
       touchY = e.clientY;
@@ -190,7 +188,7 @@
       touchY = null;
     });
 
-    // Reset
+    // Reset button
     document.getElementById('resetBtn').addEventListener('click', () => {
       location.reload();
     });
