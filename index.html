@@ -110,7 +110,7 @@
       const timeSince = now - lastInteraction;
 
       letters.forEach(letter => {
-        if (timeSince > 10000) {
+        if (timeSince > 3000) {
           const dx = letter.baseX - letter.x;
           const dy = letter.baseY - letter.y;
           letter.vx += dx * 0.01;
