@@ -19,21 +19,44 @@
       position: absolute;
       font-size: clamp(24px, 6vw, 48px);
       white-space: pre;
-      pointer-events: none;
+      pointer-events: auto;
+      cursor: grab;
+    }
+    .reset-btn {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      background: rgba(255, 255, 255, 0.05);
+      color: white;
+      padding: 6px 12px;
+      font-size: 14px;
+      border-radius: 4px;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      cursor: pointer;
+    }
+    .reset-btn:hover {
+      opacity: 1;
+      background: rgba(255, 255, 255, 0.15);
     }
   </style>
 </head>
 <body>
+  <div id="resetBtn" class="reset-btn">reset</div>
+
   <script>
     const lines = [
       "hi my name is kyle",
-      "welcome to my website"
+      "welcome to my website."
     ];
 
     const letters = [];
     const startDelay = 5000;
     let fallStartTime = null;
     let fallingIndex = 0;
+
+    let dragged = null;
+    let offsetX = 0, offsetY = 0;
 
     function layoutText() {
       const centerX = window.innerWidth / 2;
@@ -64,14 +87,27 @@
           obj.x = x;
           obj.y = y;
           obj.baseX = x;
+          obj.vx = (Math.random() - 0.5) * 4;
           obj.vy = 0;
-          obj.vx = (Math.random() - 0.5) * 4; // random sideways drift
           obj.falling = false;
           obj.landed = false;
           obj.bounced = false;
+
           obj.el.style.transform = `translate(${x}px, ${y}px)`;
-          x += obj.width;
+
+          // Drag events
+          obj.el.addEventListener('mousedown', (e) => {
+            if (obj.landed) {
+              dragged = obj;
+              offsetX = e.clientX - obj.x;
+              offsetY = e.clientY - obj.y;
+              obj.vx = 0;
+              obj.vy = 0;
+            }
+          });
+
           letters.push(obj);
+          x += obj.width;
         });
       });
     }
@@ -87,36 +123,61 @@
       const floor = window.innerHeight - 40;
       const now = Date.now();
 
+      // Sequential fall
       if (fallStartTime && now - fallStartTime > fallingIndex * 100 && fallingIndex < letters.length) {
         letters[letters.length - 1 - fallingIndex].falling = true;
         fallingIndex++;
       }
 
       letters.forEach(letter => {
-        if (letter.falling && !letter.landed) {
-          letter.vy += 0.5; // gravity
+        if (letter.falling && !letter.landed && !dragged) {
+          letter.vy += 0.5;
           letter.y += letter.vy;
           letter.x += letter.vx;
 
-          // bounce effect
           if (letter.y >= floor) {
             if (!letter.bounced) {
-              letter.vy = -letter.vy * 0.3; // small bounce
+              letter.vy = -letter.vy * 0.3;
               letter.y = floor;
               letter.bounced = true;
             } else {
-              letter.vy = 0;
               letter.y = floor;
+              letter.vy = 0;
               letter.landed = true;
             }
           }
 
           letter.el.style.transform = `translate(${letter.x}px, ${letter.y}px)`;
         }
+
+        if (dragged === letter) {
+          letter.x = mouseX - offsetX;
+          letter.y = mouseY - offsetY;
+          letter.el.style.transform = `translate(${letter.x}px, ${letter.y}px)`;
+        }
       });
 
       requestAnimationFrame(animate);
     }
+
+    let mouseX = 0, mouseY = 0;
+
+    document.addEventListener('mousemove', e => {
+      mouseX = e.clientX;
+      mouseY = e.clientY;
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (dragged) {
+        dragged = null;
+      }
+    });
+
+    // Reset button
+    const resetBtn = document.getElementById('resetBtn');
+    resetBtn.addEventListener('click', () => {
+      location.reload();
+    });
 
     animate();
   </script>
