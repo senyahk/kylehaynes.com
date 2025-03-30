@@ -3,92 +3,132 @@
 <head>
   <meta charset="UTF-8">
   <title>kyle haynes</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     html, body {
       margin: 0;
       padding: 0;
-      overflow: hidden;
       background: black;
+      color: white;
       height: 100%;
       width: 100%;
-    }
-    .word {
-      position: absolute;
-      font-size: 40px;
-      color: white;
+      overflow: hidden;
       font-family: sans-serif;
-      user-select: none;
-      cursor: default;
     }
-    .resume {
-      font-style: italic;
-      cursor: pointer;
+    .letter {
+      position: absolute;
+      font-size: clamp(32px, 10vw, 64px);
+      pointer-events: none;
+      white-space: pre;
     }
   </style>
 </head>
 <body>
-  <div id="kyle" class="word">kyle</div>
-  <div id="haynes" class="word">haynes</div>
-  <div id="V.v.V" class="word">V.v.V</div>
-<!--   <div id="resume" class="word resume">resume</div> -->
-
   <script>
-    const elements = [
-      { el: document.getElementById('kyle'), vx: -2, vy: -2.5 },
-      { el: document.getElementById('haynes'), vx: 2.5, vy: -2 },
-      { el: document.getElementById('V.v.V'), vx: 2, vy: 2 },
-      // { el: document.getElementById('resume'), vx: -1.5, vy: 1.5 }
-    ];
+    const text = "kyle haynes";
+    const letters = [];
+    let lastInteraction = Date.now();
 
+    // Create letters
+    text.split('').forEach(char => {
+      const span = document.createElement('span');
+      span.classList.add('letter');
+      span.textContent = char === ' ' ? '\u00A0' : char;
+      document.body.appendChild(span);
 
-
-    // Open V.v.V on click
-    elements[2].el.addEventListener('click', () => {
-      window.open('https://www.youtube.com/watch?v=dQw4w9WgXcQ&ab_channel=RickAstley', '_blank');
+      letters.push({
+        el: span,
+        x: 0,
+        y: 0,
+        baseX: 0,
+        baseY: 0,
+        vx: 0,
+        vy: 0,
+        width: 0
+      });
     });
-    
-    // // Open resume on click
-    // elements[3].el.addEventListener('click', () => {
-    //   window.open('resume.pdf', '_blank');
-    // });
 
-    
+    function layoutLetters() {
+      const centerX = window.innerWidth / 2;
+      const centerY = window.innerHeight / 2;
 
-
-  
-    window.onload = () => {
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-  
-      elements.forEach((obj, i) => {
-        const rect = obj.el.getBoundingClientRect();
-        obj.x = (w - rect.width) / 2 + (i * 50 - 50); // slightly spread out
-        obj.y = (h - rect.height) / 2 + (i * 30 - 30);
+      // Get widths
+      letters.forEach(letter => {
+        const rect = letter.el.getBoundingClientRect();
+        letter.width = rect.width;
       });
-  
-      move();
-    };
-  
-    function move() {
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-  
-      elements.forEach(obj => {
-        const rect = obj.el.getBoundingClientRect();
-  
-        obj.x += obj.vx;
-        obj.y += obj.vy;
-  
-        if (obj.x + rect.width >= w || obj.x <= 0) obj.vx *= -1;
-        if (obj.y + rect.height >= h || obj.y <= 0) obj.vy *= -1;
-  
-        obj.el.style.left = `${obj.x}px`;
-        obj.el.style.top = `${obj.y}px`;
+
+      const totalWidth = letters.reduce((sum, l) => sum + l.width, 0);
+
+      // Set positions
+      let x = centerX - totalWidth / 2;
+      letters.forEach(letter => {
+        letter.baseX = x;
+        letter.baseY = centerY;
+        letter.x = x;
+        letter.y = centerY;
+        x += letter.width;
       });
-  
-      requestAnimationFrame(move);
     }
-  </script>
 
+    layoutLetters();
+    window.addEventListener('resize', layoutLetters);
+
+    function handleInteraction(x, y) {
+      lastInteraction = Date.now();
+
+      letters.forEach(letter => {
+        const dx = letter.x - x;
+        const dy = letter.y - y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const minDist = 100;
+
+        if (dist < minDist) {
+          const force = (minDist - dist) / minDist;
+          const angle = Math.atan2(dy, dx);
+          letter.vx += Math.cos(angle) * force * 5;
+          letter.vy += Math.sin(angle) * force * 5;
+        }
+      });
+    }
+
+    // Mouse
+    document.addEventListener('mousemove', (e) => {
+      handleInteraction(e.clientX, e.clientY);
+    });
+
+    // Touch
+    document.addEventListener('touchmove', (e) => {
+      if (e.touches.length > 0) {
+        const touch = e.touches[0];
+        handleInteraction(touch.clientX, touch.clientY);
+      }
+    }, { passive: true });
+
+    function animate() {
+      const now = Date.now();
+      const timeSince = now - lastInteraction;
+
+      letters.forEach(letter => {
+        if (timeSince > 10000) {
+          const dx = letter.baseX - letter.x;
+          const dy = letter.baseY - letter.y;
+          letter.vx += dx * 0.01;
+          letter.vy += dy * 0.01;
+        }
+
+        letter.vx *= 0.9;
+        letter.vy *= 0.9;
+        letter.x += letter.vx;
+        letter.y += letter.vy;
+
+        letter.el.style.transform = `translate(${letter.x}px, ${letter.y}px)`;
+      });
+
+      requestAnimationFrame(animate);
+    }
+
+    animate();
+  </script>
 </body>
 </html>
