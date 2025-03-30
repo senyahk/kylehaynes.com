@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Falling Letters</title>
+  <title>Falling Letters with Signature Drop</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     html, body {
@@ -40,13 +40,14 @@
   <script>
     const lines = [
       "hi my name is kyle",
-      "welcome to my website."
+      "welcome to my website"
     ];
 
     const letters = [];
     const startDelay = 5000;
     let fallOrder = [];
     let fallStartTime = null;
+    let kyleIndexes = [];
 
     let touchX = null;
     let touchY = null;
@@ -86,22 +87,35 @@
           obj.bounced = false;
 
           obj.el.style.transform = `translate(${x}px, ${y}px)`;
+
+          // Save indexes of "kyle" (last 4 letters)
+          if (obj.el.textContent.toLowerCase() === "k" ||
+              obj.el.textContent.toLowerCase() === "y" ||
+              obj.el.textContent.toLowerCase() === "l" ||
+              obj.el.textContent.toLowerCase() === "e") {
+            kyleIndexes.push(letters.length); // future index
+          }
+
           letters.push(obj);
           x += obj.width;
         });
       });
+
+      // Ensure "kyle" comes last in fallOrder
+      const allIndexes = [...Array(letters.length).keys()];
+      const normalIndexes = allIndexes.filter(i => !kyleIndexes.includes(i));
+      // Shuffle normal ones
+      for (let i = normalIndexes.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [normalIndexes[i], normalIndexes[j]] = [normalIndexes[j], normalIndexes[i]];
+      }
+      fallOrder = [...normalIndexes, ...kyleIndexes];
     }
 
     layoutText();
     window.addEventListener('resize', () => location.reload());
 
-    // Set up randomized fall order
     function startFallSequence() {
-      fallOrder = [...Array(letters.length).keys()];
-      for (let i = fallOrder.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [fallOrder[i], fallOrder[j]] = [fallOrder[j], fallOrder[i]];
-      }
       fallStartTime = Date.now();
     }
 
@@ -141,7 +155,7 @@
           if (letter.y >= floor) {
             if (!letter.bounced) {
               letter.vy = -letter.vy * 0.3;
-              letter.vx += (Math.random() - 0.5) * 4; // subtle side bounce
+              letter.vx += (Math.random() - 0.5) * 2; // gentle bounce
               letter.y = floor;
               letter.bounced = true;
             } else {
@@ -158,7 +172,7 @@
       requestAnimationFrame(animate);
     }
 
-    // Mouse and touch tracking
+    // Input tracking
     document.addEventListener('mousemove', e => {
       touchX = e.clientX;
       touchY = e.clientY;
@@ -176,7 +190,7 @@
       touchY = null;
     });
 
-    // Reset button
+    // Reset
     document.getElementById('resetBtn').addEventListener('click', () => {
       location.reload();
     });
