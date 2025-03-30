@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Falling Letters with Touch Repel</title>
+  <title>Falling Letters with Gentle Bounce</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     html, body {
@@ -40,7 +40,7 @@
   <script>
     const lines = [
       "hi my name is kyle",
-      "welcome to my website"
+      "welcome to my website."
     ];
 
     const letters = [];
@@ -125,14 +125,15 @@
         }
 
         if (letter.falling && !letter.landed) {
-          letter.vy += 1.2; // stronger gravity
+          letter.vy += 0.6; // slower gravity
           letter.y += letter.vy;
           letter.x += letter.vx;
-          letter.vx *= 0.9; // horizontal friction
+          letter.vx *= 0.95; // horizontal friction
 
           if (letter.y >= floor) {
             if (!letter.bounced) {
-              letter.vy = -letter.vy * 0.4;
+              letter.vy = -letter.vy * 0.3;
+              letter.vx += (Math.random() - 0.5) * 4; // random horizontal kick
               letter.y = floor;
               letter.bounced = true;
             } else {
