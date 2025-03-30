@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Falling Letters with Gentle Bounce</title>
+  <title>Falling Letters</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     html, body {
@@ -45,8 +45,8 @@
 
     const letters = [];
     const startDelay = 5000;
+    let fallOrder = [];
     let fallStartTime = null;
-    let fallingIndex = 0;
 
     let touchX = null;
     let touchY = null;
@@ -95,17 +95,25 @@
     layoutText();
     window.addEventListener('resize', () => location.reload());
 
-    setTimeout(() => {
+    // Set up randomized fall order
+    function startFallSequence() {
+      fallOrder = [...Array(letters.length).keys()];
+      for (let i = fallOrder.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [fallOrder[i], fallOrder[j]] = [fallOrder[j], fallOrder[i]];
+      }
       fallStartTime = Date.now();
-    }, startDelay);
+    }
+
+    setTimeout(startFallSequence, startDelay);
 
     function animate() {
       const floor = window.innerHeight - 40;
       const now = Date.now();
 
-      if (fallStartTime && now - fallStartTime > fallingIndex * 100 && fallingIndex < letters.length) {
-        letters[letters.length - 1 - fallingIndex].falling = true;
-        fallingIndex++;
+      if (fallStartTime && fallOrder.length > 0 && now - fallStartTime > 100 * (letters.length - fallOrder.length)) {
+        const nextIndex = fallOrder.shift();
+        letters[nextIndex].falling = true;
       }
 
       letters.forEach(letter => {
@@ -125,15 +133,15 @@
         }
 
         if (letter.falling && !letter.landed) {
-          letter.vy += 0.6; // slower gravity
+          letter.vy += 0.6; // gravity
           letter.y += letter.vy;
           letter.x += letter.vx;
-          letter.vx *= 0.95; // horizontal friction
+          letter.vx *= 0.95;
 
           if (letter.y >= floor) {
             if (!letter.bounced) {
               letter.vy = -letter.vy * 0.3;
-              letter.vx += (Math.random() - 0.5) * 4; // random horizontal kick
+              letter.vx += (Math.random() - 0.5) * 4; // subtle side bounce
               letter.y = floor;
               letter.bounced = true;
             } else {
@@ -150,7 +158,7 @@
       requestAnimationFrame(animate);
     }
 
-    // Touch + mouse input
+    // Mouse and touch tracking
     document.addEventListener('mousemove', e => {
       touchX = e.clientX;
       touchY = e.clientY;
@@ -169,8 +177,7 @@
     });
 
     // Reset button
-    const resetBtn = document.getElementById('resetBtn');
-    resetBtn.addEventListener('click', () => {
+    document.getElementById('resetBtn').addEventListener('click', () => {
       location.reload();
     });
 
