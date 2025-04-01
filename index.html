@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Falling Letters with Signature Drop</title>
+  <title>Kyle Letter Finale</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     html, body {
@@ -40,27 +40,24 @@
   <script>
     const lines = [
       "hi my name is kyle",
-      "welcome to my website."
+      "welcome to my website"
     ];
 
     const letters = [];
-    const startDelay = 5000;
+    const startDelay = 3000;
     let fallOrder = [];
     let fallStartTime = null;
     let kyleIndexes = [];
-
-    let touchX = null;
-    let touchY = null;
+    let kyleExploded = false;
+    let kyleExplodedAt = null;
 
     function layoutText() {
       const centerX = window.innerWidth / 2;
       const lineHeight = window.innerHeight / 3;
       const spacingY = 60;
-      let letterCount = 0;
 
       lines.forEach((line, lineIndex) => {
-        const lineLetters = line.split('');
-        const spans = lineLetters.map(char => {
+        const spans = line.split('').map(char => {
           const span = document.createElement('span');
           span.classList.add('letter');
           span.textContent = char === ' ' ? '\u00A0' : char;
@@ -77,27 +74,37 @@
         let x = centerX - totalWidth / 2;
         let y = lineHeight + spacingY * lineIndex;
 
-        spans.forEach((obj, i) => {
+        spans.forEach(obj => {
           obj.x = x;
           obj.y = y;
-          obj.baseX = x;
+
           obj.vx = 0;
           obj.vy = 0;
+
+          obj.width = obj.el.getBoundingClientRect().width;
+          obj.height = obj.el.getBoundingClientRect().height;
+
           obj.falling = false;
           obj.landed = false;
-          obj.bounced = false;
 
-          obj.el.style.transform = `translate(${x}px, ${y}px)`;
+          obj.el.style.transform = `translate(${obj.x}px, ${obj.y}px)`;
           letters.push(obj);
           x += obj.width;
-
-          letterCount++;
         });
       });
 
-      // Get the last 4 letters only (which should be "kyle")
-      const total = letters.length;
-      kyleIndexes = [total - 4, total - 3, total - 2, total - 1];
+      // Find "kyle" in sequence
+      kyleIndexes = [];
+      letters.forEach((letter, index) => {
+        if (
+          letter.el.textContent.toLowerCase() === 'k' &&
+          letters[index + 1]?.el.textContent.toLowerCase() === 'y' &&
+          letters[index + 2]?.el.textContent.toLowerCase() === 'l' &&
+          letters[index + 3]?.el.textContent.toLowerCase() === 'e'
+        ) {
+          kyleIndexes = [index, index + 1, index + 2, index + 3];
+        }
+      });
 
       // Randomize all other letters
       const allIndexes = [...Array(letters.length).keys()];
@@ -107,7 +114,7 @@
         [normalIndexes[i], normalIndexes[j]] = [normalIndexes[j], normalIndexes[i]];
       }
 
-      fallOrder = [...normalIndexes, ...kyleIndexes];
+      fallOrder = normalIndexes;
     }
 
     layoutText();
@@ -120,47 +127,70 @@
     setTimeout(startFallSequence, startDelay);
 
     function animate() {
-      const floor = window.innerHeight - 40;
       const now = Date.now();
+      const floor = window.innerHeight - 40;
+      const rightWall = window.innerWidth;
+      const leftWall = 0;
+      const ceiling = 0;
 
-      if (fallStartTime && fallOrder.length > 0 && now - fallStartTime > 100 * (letters.length - fallOrder.length)) {
-        const nextIndex = fallOrder.shift();
-        letters[nextIndex].falling = true;
+      if (fallStartTime) {
+        const step = 100 * (letters.length - fallOrder.length - kyleIndexes.length);
+        if (fallOrder.length > 0 && now - fallStartTime > step) {
+          const nextIndex = fallOrder.shift();
+
+          const angle = Math.random() * (Math.PI / 2) - (3 * Math.PI / 4); // upward angles
+          const speed = Math.random() * 0 + 20;
+          letters[nextIndex].vx = Math.cos(angle) * speed;
+          letters[nextIndex].vy = Math.sin(angle) * speed;
+
+          letters[nextIndex].falling = true;
+        } else if (fallOrder.length === 0 && !kyleExploded) {
+          if (!kyleExplodedAt) kyleExplodedAt = now;
+          if (now - kyleExplodedAt > 2000) { // 2 second delay
+            kyleIndexes.forEach(i => {
+              const angle = Math.random() * (Math.PI / 2) - (3 * Math.PI / 4);
+              const speed = Math.random() * 0 + 5;
+              letters[i].vx = Math.cos(angle) * speed;
+              letters[i].vy = Math.sin(angle) * speed;
+              letters[i].falling = true;
+            });
+            kyleExploded = true;
+          }
+        }
       }
 
       letters.forEach(letter => {
-        // Repulsion
-        if (touchX !== null && touchY !== null && !letter.landed) {
-          const dx = letter.x - touchX;
-          const dy = letter.y - touchY;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          const minDist = 100;
-
-          if (dist < minDist) {
-            const force = (minDist - dist) / minDist;
-            const angle = Math.atan2(dy, dx);
-            letter.vx += Math.cos(angle) * force * 4;
-            letter.vy += Math.sin(angle) * force * 4;
-          }
-        }
-
         if (letter.falling && !letter.landed) {
           letter.vy += 0.6; // gravity
-          letter.y += letter.vy;
-          letter.x += letter.vx;
-          letter.vx *= 0.95;
 
-          if (letter.y >= floor) {
-            if (!letter.bounced) {
-              letter.vy = -letter.vy * 0.3;
-              letter.vx += (Math.random() - 0.5) * 2;
-              letter.y = floor;
-              letter.bounced = true;
-            } else {
+          letter.x += letter.vx;
+          letter.y += letter.vy;
+
+          // Bounce off floor
+          if (letter.y + letter.height >= floor) {
+            letter.y = floor - letter.height;
+            letter.vy *= -0.4;
+            if (Math.abs(letter.vy) < 1) {
               letter.vy = 0;
-              letter.y = floor;
+              letter.vx *= 0.98;
               letter.landed = true;
             }
+          }
+
+          // Bounce off ceiling
+          if (letter.y <= ceiling) {
+            letter.y = ceiling;
+            letter.vy *= -0.4;
+          }
+
+          // Bounce off walls
+          if (letter.x + letter.width >= rightWall) {
+            letter.x = rightWall - letter.width;
+            letter.vx *= -0.6;
+          }
+          if (letter.x <= leftWall) {
+            letter.x = leftWall;
+            letter.vx *= -0.6;
           }
 
           letter.el.style.transform = `translate(${letter.x}px, ${letter.y}px)`;
@@ -170,25 +200,6 @@
       requestAnimationFrame(animate);
     }
 
-    // Touch + mouse repulsion tracking
-    document.addEventListener('mousemove', e => {
-      touchX = e.clientX;
-      touchY = e.clientY;
-    });
-
-    document.addEventListener('touchmove', e => {
-      if (e.touches.length > 0) {
-        touchX = e.touches[0].clientX;
-        touchY = e.touches[0].clientY;
-      }
-    }, { passive: true });
-
-    document.addEventListener('touchend', () => {
-      touchX = null;
-      touchY = null;
-    });
-
-    // Reset button
     document.getElementById('resetBtn').addEventListener('click', () => {
       location.reload();
     });
