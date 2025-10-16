@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>wavepage – mobile pointer fix</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #000;
+    }
+    canvas#wave {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      touch-action: none;        /* critical for mobile continuous pointer events */
+      -ms-touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      cursor: crosshair;
+    }
+    .hint {
+      position: fixed;
+      left: 12px; bottom: 12px;
+      padding: 6px 10px; border-radius: 8px;
+      background: rgba(255,255,255,0.08);
+      color: #bbb; font: 12px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="wave"></canvas>
+  <div class="hint">Drag to stir • Idle swirl when not touching • HiDPI scaled</div>
+
+  <script>
+  (function () {
+    const canvas = document.getElementById('wave');
+    const ctx = canvas.getContext('2d', { alpha: false });
+
+    // ---- HiDPI resize ----
+    function resize() {
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      const w = Math.floor(window.innerWidth * dpr);
+      const h = Math.floor(window.innerHeight * dpr);
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w; canvas.height = h;
+        canvas.style.width = window.innerWidth + 'px';
+        canvas.style.height = window.innerHeight + 'px';
+        ctx.setTransform(1, 0, 0, 1, 0, 0); // reset first
+        ctx.scale(dpr, dpr); // draw in CSS pixels
+      }
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // ---- Unified pointer input (mouse + touch + pen) ----
+    let isDown = false;
+    let lastX = null, lastY = null, lastT = 0;
+    let idleT = 0; // for idle swirl
+
+    const MAX_SPEED = 1200;    // px/s cap to prevent jet blasts
+    const DAMPING   = 0.9;     // light smoothing of flicks
+    const IDLE_GAIN = 60;      // strength of idle swirl injection
+
+    // If you have a real wave sim, define window.sim.addVelocity(x, y, vx, vy)
+    // This demo provides a lightweight visual so the file works standalone.
+    const demo = (function makeDemo() {
+      const points = []; // particles to visualize input energy
+      const W = () => window.innerWidth;
+      const H = () => window.innerHeight;
+      return {
+        addVelocity(x, y, vx, vy) {
+          // Convert to CSS pixel coords
+          points.push({ x, y, vx: vx * 0.02, vy: vy * 0.02, life: 1.0 });
+          if (points.length > 600) points.shift();
+        },
+        step(dt) {
+          // fade background
+          ctx.fillStyle = 'rgba(0,0,0,0.12)';
+          ctx.fillRect(0, 0, W(), H());
+          // update and draw particles
+          for (let i = points.length - 1; i >= 0; i--) {
+            const p = points[i];
+            p.x += p.vx * dt; p.y += p.vy * dt;
+            p.vx *= 0.985; p.vy *= 0.985;
+            p.life *= 0.985;
+            if (p.life < 0.03) { points.splice(i, 1); continue; }
+            const r = Math.max(1, 18 * p.life);
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(160,200,255,0.25)';
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(120,180,255,0.6)';
+            ctx.lineWidth = Math.max(0.5, 2.0 * p.life);
+            ctx.stroke();
+          }
+        }
+      };
+    })();
+
+    // Hook: prefer real sim if page provides it, else use demo
+    const sim = (window.sim && typeof window.sim.addVelocity === 'function') ? window.sim : demo;
+
+    function applyInput(vx, vy, x, y) {
+      // Forward to your sim (expects CSS pixel space)
+      sim.addVelocity(x, y, vx, vy);
+      // Back-compat shim: also dispatch a synthetic mousemove for mouse-only listeners
+      const ev = new MouseEvent('mousemove', { clientX: x, clientY: y, bubbles: true, cancelable: true });
+      window.dispatchEvent(ev);
+    }
+
+    function onPointerDown(e) {
+      isDown = true;
+      canvas.setPointerCapture(e.pointerId);
+      lastX = e.clientX; lastY = e.clientY; lastT = performance.now();
+      e.preventDefault();
+    }
+
+    function handleMove(e) {
+      if (!isDown) return;
+      const now = performance.now();
+      const dt = Math.max(1, now - lastT); // ms
+      const x = e.clientX, y = e.clientY;
+      if (lastX != null) {
+        let vx = ((x - lastX) / dt) * 1000; // px/s
+        let vy = ((y - lastY) / dt) * 1000;
+        // smoothing
+        vx = DAMPING * vx; vy = DAMPING * vy;
+        // clamp
+        const spd = Math.hypot(vx, vy);
+        if (spd > MAX_SPEED) { const k = MAX_SPEED / spd; vx *= k; vy *= k; }
+        applyInput(vx, vy, x, y);
+      }
+      lastX = x; lastY = y; lastT = now;
+      e.preventDefault();
+    }
+
+    function onPointerUp(e) {
+      isDown = false;
+      lastX = lastY = null;
+      e.preventDefault();
+    }
+
+    // Important: passive:false so preventDefault actually blocks page scroll/zoom gestures
+    canvas.addEventListener('pointerdown', onPointerDown, { passive: false });
+    canvas.addEventListener('pointermove', handleMove,   { passive: false });
+    canvas.addEventListener('pointerup',   onPointerUp,   { passive: false });
+    canvas.addEventListener('pointercancel', onPointerUp, { passive: false });
+    // Optional: lower-latency stream if supported
+    canvas.addEventListener('pointerrawupdate', handleMove, { passive: false });
+
+    // Secondary guard to stop page scrolling while dragging on some Androids
+    document.addEventListener('touchmove', (e) => { if (isDown) e.preventDefault(); }, { passive: false });
+
+    // ---- Idle animation when not interacting ----
+    let prev = performance.now();
+    function frame(now) {
+      const dt = Math.min(50, now - prev); // ms cap
+      prev = now;
+      if (!isDown) {
+        idleT += dt * 0.0016; // ~60fps factor
+        const w = window.innerWidth, h = window.innerHeight;
+        const cx = w * 0.5 + Math.cos(idleT * 0.7) * w * 0.25;
+        const cy = h * 0.5 + Math.sin(idleT * 0.9) * h * 0.25;
+        const vx = Math.cos(idleT * 1.3) * IDLE_GAIN;
+        const vy = Math.sin(idleT * 1.1) * IDLE_GAIN;
+        applyInput(vx, vy, cx, cy);
+      }
+      // Step demo (no-op if real sim is used and handles its own draw)
+      if (sim === demo) demo.step(dt * 0.06);
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  })();
+  </script>
+</body>
+</html>
