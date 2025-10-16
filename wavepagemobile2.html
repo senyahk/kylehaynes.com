@@ -65,7 +65,7 @@
   }
   addEventListener('resize', () => fit(false), { passive:true }); fit(true);
 
-  /* Minimal GL helpers and (same) shaders */
+  /* Minimal GL helpers and shaders */
   const sh = (t,src)=>{ const s=gl.createShader(t); gl.shaderSource(s,src); gl.compileShader(s);
     if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)+'\n'+src); return s; };
   const prog = (vs,fs)=>{ const p=gl.createProgram(); gl.attachShader(p,sh(gl.VERTEX_SHADER,vs));
@@ -79,8 +79,16 @@
     gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA16F,w,h,0,gl.RGBA,gl.HALF_FLOAT,null); return t; };
   const fbo=(w,h)=>{ const t=texRGBA16F(w,h), f=gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER,f);
     gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0); return {fbo:f,tex:t,w,h}; };
-  const dfbo=(w,h)=>{ const A=fbo(w,h), B=fbo(w,h); return { A,B, get read(){return A}, get write(){return B},
-    swap(){ [this.A,this.B]=[this.B,this.A]; } }; };
+
+  /* FIXED dfbo: use mutable read/write props and swap those */
+  const dfbo=(w,h)=>{
+    const A=fbo(w,h), B=fbo(w,h);
+    return {
+      read: A,
+      write: B,
+      swap(){ const tmp=this.read; this.read=this.write; this.write=tmp; }
+    };
+  };
 
   const VS=`#version 300 es
   precision highp float;
@@ -253,6 +261,8 @@
   canvas.addEventListener('pointercancel', onUp, { passive:true });
 
   /* --- Simulation loop (unchanged visuals) --- */
+  function simSize(){ const s=.5; return { w:Math.max(16,(canvas.width*s)|0), h:Math.max(16,(canvas.height*s)|0) }; }
+
   function seed(){
     for(let i=0;i<6;i++){
       const x=.5+(Math.random()-.5)*.2, y=.5+(Math.random()-.5)*.2, k=.4+Math.random()*.3;
@@ -260,6 +270,48 @@
       const hue = Math.random(); const rgb=hsv2rgb(hue, 1, 1);
       splatD(x,y, rgb[0]*k, rgb[1]*k, rgb[2]*k, .01, aspect);
     }
+  }
+
+  function stepCore(){
+    gl.useProgram(P_ADVECT_V);
+    gl.uniform1f(gl.getUniformLocation(P_ADVECT_V,'uDt'), params.dt);
+    gl.uniform1f(gl.getUniformLocation(P_ADVECT_V,'uDissipation'), params.velDiss);
+    gl.uniform2f(gl.getUniformLocation(P_ADVECT_V,'uTexel'), 1/F.w, 1/F.h);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, F.velocity.read.tex); gl.uniform1i(gl.getUniformLocation(P_ADVECT_V,'uVelocity'),0);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, F.velocity.read.tex); gl.uniform1i(gl.getUniformLocation(P_ADVECT_V,'uSource'),1);
+    target(F.velocity.write); tri(); F.velocity.swap();
+
+    gl.useProgram(P_DIVERGENCE);
+    gl.uniform2f(gl.getUniformLocation(P_DIVERGENCE,'uTexel'), 1/F.w, 1/F.h);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, F.velocity.read.tex); gl.uniform1i(gl.getUniformLocation(P_DIVERGENCE,'uVelocity'),0);
+    target(F.divergence); tri();
+
+    gl.useProgram(P_CLEAR);
+    gl.uniform1f(gl.getUniformLocation(P_CLEAR,'uDissipation'), params.presDiss);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, F.pressure.read.tex); gl.uniform1i(gl.getUniformLocation(P_CLEAR,'uPressure'),0);
+    target(F.pressure.write); tri(); F.pressure.swap();
+
+    gl.useProgram(P_JACOBI);
+    gl.uniform2f(gl.getUniformLocation(P_JACOBI,'uTexel'), 1/F.w, 1/F.h);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, F.divergence.tex); gl.uniform1i(gl.getUniformLocation(P_JACOBI,'uDivergence'),1);
+    for(let j=0;j<params.jacobi;j++){
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, F.pressure.read.tex); gl.uniform1i(gl.getUniformLocation(P_JACOBI,'uPressure'),0);
+      target(F.pressure.write); tri(); F.pressure.swap();
+    }
+
+    gl.useProgram(P_GRADIENT);
+    gl.uniform2f(gl.getUniformLocation(P_GRADIENT,'uTexel'), 1/F.w, 1/F.h);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, F.velocity.read.tex); gl.uniform1i(gl.getUniformLocation(P_GRADIENT,'uVelocity'),0);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, F.pressure.read.tex); gl.uniform1i(gl.getUniformLocation(P_GRADIENT,'uPressure'),1);
+    target(F.velocity.write); tri(); F.velocity.swap();
+
+    gl.useProgram(P_ADVECT_DYE);
+    gl.uniform1f(gl.getUniformLocation(P_ADVECT_DYE,'uDt'), params.dt);
+    gl.uniform1f(gl.getUniformLocation(P_ADVECT_DYE,'uDissipation'), params.dyeDiss);
+    gl.uniform2f(gl.getUniformLocation(P_ADVECT_DYE,'uTexel'), 1/F.w, 1/F.h);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, F.velocity.read.tex); gl.uniform1i(gl.getUniformLocation(P_ADVECT_DYE,'uVelocity'),0);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, F.dye.read.tex); gl.uniform1i(gl.getUniformLocation(P_ADVECT_DYE,'uDye'),1);
+    target(F.dye.write); tri(); F.dye.swap();
   }
 
   ensure(); seed();
@@ -328,59 +380,19 @@
       if (!idle) released=false;
 
       // Core steps (unchanged)
-      gl.useProgram(P_ADVECT_V);
-      gl.uniform1f(gl.getUniformLocation(P_ADVECT_V,'uDt'), params.dt);
-      gl.uniform1f(gl.getUniformLocation(P_ADVECT_V,'uDissipation'), params.velDiss);
-      gl.uniform2f(gl.getUniformLocation(P_ADVECT_V,'uTexel'), 1/F.w, 1/F.h);
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, F.velocity.read.tex); gl.uniform1i(gl.getUniformLocation(P_ADVECT_V,'uVelocity'),0);
-      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, F.velocity.read.tex); gl.uniform1i(gl.getUniformLocation(P_ADVECT_V,'uSource'),1);
-      target(F.velocity.write); tri(); F.velocity.swap();
-
-      gl.useProgram(P_DIVERGENCE);
-      gl.uniform2f(gl.getUniformLocation(P_DIVERGENCE,'uTexel'), 1/F.w, 1/F.h);
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, F.velocity.read.tex); gl.uniform1i(gl.getUniformLocation(P_DIVERGENCE,'uVelocity'),0);
-      target(F.divergence); tri();
-
-      gl.useProgram(P_CLEAR);
-      gl.uniform1f(gl.getUniformLocation(P_CLEAR,'uDissipation'), params.presDiss);
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, F.pressure.read.tex); gl.uniform1i(gl.getUniformLocation(P_CLEAR,'uPressure'),0);
-      target(F.pressure.write); tri(); F.pressure.swap();
-
-      gl.useProgram(P_JACOBI);
-      gl.uniform2f(gl.getUniformLocation(P_JACOBI,'uTexel'), 1/F.w, 1/F.h);
-      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, F.divergence.tex); gl.uniform1i(gl.getUniformLocation(P_JACOBI,'uDivergence'),1);
-      for(let j=0;j<params.jacobi;j++){
-        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, F.pressure.read.tex); gl.uniform1i(gl.getUniformLocation(P_JACOBI,'uPressure'),0);
-        target(F.pressure.write); tri(); F.pressure.swap();
-      }
-
-      gl.useProgram(P_GRADIENT);
-      gl.uniform2f(gl.getUniformLocation(P_GRADIENT,'uTexel'), 1/F.w, 1/F.h);
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, F.velocity.read.tex); gl.uniform1i(gl.getUniformLocation(P_GRADIENT,'uVelocity'),0);
-      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, F.pressure.read.tex); gl.uniform1i(gl.getUniformLocation(P_GRADIENT,'uPressure'),1);
-      target(F.velocity.write); tri(); F.velocity.swap();
-
-      gl.useProgram(P_ADVECT_DYE);
-      gl.uniform1f(gl.getUniformLocation(P_ADVECT_DYE,'uDt'), params.dt);
-      gl.uniform1f(gl.getUniformLocation(P_ADVECT_DYE,'uDissipation'), params.dyeDiss);
-      gl.uniform2f(gl.getUniformLocation(P_ADVECT_DYE,'uTexel'), 1/F.w, 1/F.h);
-      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, F.velocity.read.tex); gl.uniform1i(gl.getUniformLocation(P_ADVECT_DYE,'uVelocity'),0);
-      gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, F.dye.read.tex); gl.uniform1i(gl.getUniformLocation(P_ADVECT_DYE,'uDye'),1);
-      target(F.dye.write); tri(); F.dye.swap();
+      stepCore();
     }
-    gl.useProgram(P_DISPLAY);
-    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, F.dye.read.tex); gl.uniform1i(gl.getUniformLocation(P_DISPLAY,'uDye'),0);
-    target(null); tri();
-
+    show();
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
 
-  /* Optional: handle context loss gracefully (rare after the above). */
+  /* Optional: handle context loss gracefully. */
   canvas.addEventListener('webglcontextlost', (e)=>{ e.preventDefault(); }, false);
   canvas.addEventListener('webglcontextrestored', ()=>{ fit(true); F=null; ensure(); }, false);
 })();
 </script>
 </body>
 </html>
+
 
