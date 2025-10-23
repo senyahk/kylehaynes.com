@@ -2,130 +2,247 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport"
-      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-<title>himynameiskyle</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>himynameiskyle — refactor</title>
+
+<!--
+  ==============================================
+  REFACTORED SINGLE-FILE SITE
+  - Goal: expose all visual/behavior knobs up top
+  - Heavy inline comments throughout
+  - Same visual result by default
+  - Safe on mobile (gesture prevention, DPR clamp)
+  ==============================================
+-->
+
 <style>
+  /* ===================== GLOBAL THEME (CSS variables) ===================== */
+  :root {
+    /* Colors */
+    --bg: #0a0b10;                  /* page background */
+    --hint-fg: #aab;                 /* hint text color */
+    --hint-bg: rgba(0,0,0,.25);      /* hint chips bg */
+
+    /* Typography */
+    --font-stack: ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+                  Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+
+    /* Overlay text */
+    --overlay-color: #ffffff;        /* base overlay text color (non-cycling) */
+    --overlay-shadow: 0 0 6px rgba(255,255,255,0.25);
+    --overlay-size-min: 24px;        /* clamp lower font size */
+    --overlay-size-max: 48px;        /* clamp upper font size */
+
+    /* Link (the word "kyle") */
+    --kyle-glow-hue: 0;              /* animated via keyframes */
+    --kyle-glow-light: 75%;          /* perceived text lightness */
+    --kyle-shadow-1: 0 0 6px hsla(var(--kyle-glow-hue),100%,60%,0.70);
+    --kyle-shadow-2: 0 0 14px hsla(var(--kyle-glow-hue),100%,60%,0.35);
+    --kyle-shadow-3: 0 0 28px hsla(var(--kyle-glow-hue),100%,60%,0.15);
+
+    /* Hints */
+    --hint-font-size: 12px;
+    --hint-padding-y: 6px;
+    --hint-padding-x: 8px;
+    --hint-radius: 6px;
+
+    /* Canvas sizing */
+    --canvas-w: 100vw;
+    --canvas-h: 100vh;
+  }
+
+  /* ===================== PAGE BASICS ===================== */
   html, body {
     height: 100%;
     margin: 0;
-    background: #0a0b10;
+    background: var(--bg);
     overflow: hidden;
     overscroll-behavior: none; /* prevent pull-to-refresh/overscroll */
     touch-action: none;        /* disable browser gestures globally */
+    font-family: var(--font-stack);
   }
-  /* place this in a <style> block after the fluid styles */
-html, body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI",
-             Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"; }
-
-.overlay .letter { font-family: inherit; }  /* ensures overlay uses the same */
 
   canvas {
     display: block;
-    width: 100vw;
-    height: 100vh;
+    width: var(--canvas-w);
+    height: var(--canvas-h);
     touch-action: none;        /* continuous pointer events */
     user-select: none;
     -webkit-user-select: none;
   }
+
+  /* Bottom-left hint chip */
   .hint {
     position: fixed; left: 12px; bottom: 12px;
-    color: #aab; font: 12px/1.3 system-ui, sans-serif; opacity: .75;
+    color: var(--hint-fg);
+    font: var(--hint-font-size)/1.3 var(--font-stack);
+    opacity: .75;
     user-select: none; pointer-events: none;
-    background: rgba(0,0,0,.25); padding: 6px 8px; border-radius: 6px;
+    background: var(--hint-bg);
+    padding: var(--hint-padding-y) var(--hint-padding-x);
+    border-radius: var(--hint-radius);
   }
+
+  /* Error full-screen overlay when WebGL2/extension missing */
   .error {
     position: fixed; inset: 0; display: grid; place-items: center;
-    color: #fff; font: 16px/1.6 system-ui, sans-serif; text-align: center;
+    color: #fff; font: 16px/1.6 var(--font-stack); text-align: center;
     padding: 24px;
   }
+
+  /* ===================== OVERLAY TEXT LAYER ===================== */
+  .overlay { position: fixed; inset: 0; z-index: 10; pointer-events: none; }
+  .overlay .letter {
+    position: absolute;
+    font-size: clamp(var(--overlay-size-min), 6vw, var(--overlay-size-max));
+    white-space: pre;
+    color: var(--overlay-color);
+    text-shadow: var(--overlay-shadow);
+    font-family: var(--font-stack);
+  }
+  .overlay .kyle-link {
+    pointer-events: auto; /* allow clicking */
+    font-weight: 700;
+    text-decoration: none;
+    color: hsl(var(--kyle-glow-hue), 100%, var(--kyle-glow-light));
+    text-shadow: var(--kyle-shadow-1), var(--kyle-shadow-2), var(--kyle-shadow-3);
+    animation: hue-shift var(--kyle-hue-period, 12s) linear infinite;
+  }
+  @keyframes hue-shift { from { --kyle-glow-hue: 0; } to { --kyle-glow-hue: 360; } }
 </style>
 </head>
 <body>
-<canvas id="c"></canvas>
-<div class="hint">V.v.V</div>
-<div id="err" class="error" style="display:none">Needs WebGL2 + EXT_color_buffer_float.</div>
+  <!--
+    The WebGL fluid canvas. The UI is purposely minimal; all behavior is driven
+    in the script based on the CONFIG object below.
+  -->
+  <canvas id="c" aria-hidden="true"></canvas>
+  <div class="hint" id="hint">V.v.V</div>
+  <div id="err" class="error" style="display:none">Needs WebGL2 + EXT_color_buffer_float.</div>
 
 <script>
-/* -------------------------------------------------------------------------
-   CONFIG — tweak these knobs to control look & behavior
-   (Grouped; each line documents what it does and a suggested range.)
----------------------------------------------------------------------------*/
-const IDLE_ENABLED = true;     // Autopilot/idle swirl when not interacting. true/false
+/*
+=======================================================================
+CONFIG — single source of truth for all tweakable behavior & styling
+- Grouped by feature area, each key is documented inline.
+- Many values mirror your original file; naming clarified.
+=======================================================================
+*/
+const CONFIG = {
+  /* ---------- Rendering / Performance ---------- */
+  perf: {
+    dt: 1/60,          // Base timestep (s). Smaller = smoother, more GPU work.
+    dprMax: 2,         // Clamp devicePixelRatio to limit VRAM/bandwidth.
+    simScale: 0.5,     // Simulation buffers size = canvas * simScale.
+    jacobiIters: 32    // Pressure iterations; higher = smoother, costlier.
+  },
 
-const params = {
-  /* ---- SIMULATION / SOLVER ---- */
-  dt: 1/60,                 // Time step in seconds. Smaller = smoother but more GPU work. Typical: 1/120…1/60
-  jacobi: 32,               // Pressure iterations. Higher = less divergence, smoother flow. Typical: 8…32
+  /* ---------- Dissipation (motion + color persistence) ---------- */
+  dissipation: {
+    velocity: 0.985,   // Velocity decay per step (0..1). Lower = calmer.
+    dye: 0.98,         // Color decay per step (0..1). Lower = longer trails.
+    pressure: 0.96     // Pressure decay per step; affects push persistence.
+  },
 
-  /* ---- DISSIPATION (appearance & motion persistence) ---- */
-  velDiss: 0.985,           // Velocity decay per step. Lower = calmer/slower fluid. Typical: 0.97…0.995
-  dyeDiss: 0.98,           // Color decay per step. Lower = longer trails. Typical: 0.98…0.999
-  presDiss: 0.98,           // Pressure decay per step. Influences how long "pushes" linger. Typical: 0.95…0.99
+  /* ---------- Brush / Injection Sizing ---------- */
+  brush: {
+    splatPx: 15,       // Brush radius while dragging (screen pixels).
+    releasePx: 20,     // Brush radius for release burst.
+    baseDimForUnity: 1500, // Reference screen size used for brush scaling.
+    minScale: 0.4     // Prevent brush getting too small on tiny devices.
+  },
 
-  /* ---- BRUSH / INJECTION SIZES (screen-pixel based, scaled to sim res) ---- */
-  splatPx: 15,               // Brush radius while moving. Thicker lines if higher. Typical: 3…15 px
-  releasePx: 30,            // Brush radius on release burst. Typical: 10…50 px
-  minScale: 0.65,           // Prevent brush getting too small on tiny screens. Typical: 0.5…0.9
-  baseDimForUnity: 1500,    // Reference screen size used for brush scaling. Typical: 900…1500
+  /* ---------- Input Gains (how hard input pushes fluid) ---------- */
+  input: {
+    moveGain: 300,           // Drag push strength.
+    releaseGain: 200,        // Post-release burst strength.
+    releaseDelayMs: 20,      // Idle threshold before release triggers.
+    minReleaseSpeed: 0.02,   // Minimum cursor speed to trigger release.
+    maxReleaseSpeed: 0.80,   // Clamp to avoid explosive blasts.
+    velSmooth: 0.4           // Velocity smoothing blend (0..1). Higher = smoother.
+  },
 
-  /* ---- INTERACTION GAINS (how hard input pushes the fluid) ---- */
-  moveGain: 300,            // Strength while dragging ("jetstream"). Lower to calm it. Typical: 300…1800
-  releaseGain: 200,         // Strength of the burst after stopping. Typical: 200…1500
-  RELEASE_DELAY: 20,        // ms after last movement before release triggers. Typical: 80…250
-  minReleaseSpeed: 0.02,    // Minimum cursor speed that can trigger a release. Typical: 0.01…0.05
-  maxReleaseSpeed: 0.80,    // Clamp for release speed. Prevents huge blasts. Typical: 0.5…1.0
+  /* ---------- Color Cycling ---------- */
+  color: {
+    rainbowSpeed: 0.10, // Hue cycles per second for injected dye.
+  },
 
-  /* ---- COLOR / RAINBOW ---- */
-  rainbowSpeed: 0.1,       // Hue cycles per second. Lower = slower color change. Typical: 0.02…0.2
+  /* ---------- Autopilot / Idle (swirl when hands-off) ---------- */
+  autopilot: {
+    enabled: true,          // Toggle autopilot behavior.
+    idleStartMs: 1500,      // Idle time before autopilot kicks in.
+    moveGain: 10,           // Autopilot movement strength (kept low for subtlety).
+    colorGain: 0.6,         // Autopilot dye intensity multiplier.
+    radiusPx: 15            // Autopilot brush size (screen pixels).
+  },
 
-  /* ---- POINTER SMOOTHING ---- */
-  velSmooth: 0.4,          // Blend factor for pointer velocity (0..1). Higher = smoother, less snappy. Typical: 0.1…0.4
+  /* ---------- Boundary Conditions (velocity near edges) ---------- */
+  wall: {
+    enabled: true,          // true = collide with edges; false = free-slip.
+    thicknessPx: 1,         // Wall band thickness in pixels.
+    bounce: 0.6,            // Normal rebound multiplier (0 = stick).
+    friction: 0.1           // Tangential damping (0..1). Lower = stickier.
+  },
 
-  /* ---- AUTOPILOT / IDLE (used only if IDLE_ENABLED = true) ---- */
-  autoStartMs: 1500,        // Idle time before autopilot begins. Typical: 1200…3000 ms
-  autoMoveGain: 10,        // Autopilot movement strength. Typical: 100…800
-  autoColorGain: 0.6,       // Autopilot color intensity. Typical: 0.2…1.0
-  autoRadiusPx: 15           // Autopilot brush size (px). Typical: 3…10
+  /* ---------- Overlay Text / Link ---------- */
+  overlay: {
+    /* Lines to render (exact chars preserved, spaces kept) */
+    lines: ["hi my name is kyle", ""],
+    centerYDiv: 3,               // Vertical baseline: window.innerHeight / centerYDiv
+    lineSpacing: 60,             // Pixels between lines.
+    linkWord: "kyle",            // Word to turn into a link (first occurrence).
+    linkHref: "resume.pdf",      // HREF for the link.
+    linkNewTab: true,            // Open in new tab.
+    kyleHuePeriodSec: 12         // Rainbow period for the word "kyle".
+  },
+
+  /* ---------- UI bits ---------- */
+  ui: {
+    showHint: true,          // Toggle the bottom-left hint chip.
+    hintText: "V.v.V"        // Content of the hint.
+  }
 };
 
-/* ---- WALL / BOUNDARY SETTINGS (Proception-style edge collision) ---- */
-const wall = {
-  enabled: true,            // Toggle solid walls. true = collide with edges; false = free slip
-  thicknessPx: 1,           // Thickness of the wall band in screen pixels. Typical: 2…8
-  bounce: 0.6,              // Normal rebound. 0 = no-slip (sticks); 0.2…0.6 = bouncy feel
-  friction: 0.1             // Tangential damping (0..1). Lower = stickier along the wall
-};
-
-/* -------------------------------------------------------------------------
-   RUNTIME & MOBILE SAFETY
----------------------------------------------------------------------------*/
+/*
+Utility: clamp DPR and size canvas. Group mobile gesture prevention separately
+so it's easy to remove if you ever want default browser gestures back.
+*/
 ['gesturestart','gesturechange','gestureend'].forEach(ev =>
   document.addEventListener(ev, e => e.preventDefault(), { passive:false })
 );
 
-(() => {
+(function main(){
   const canvas = document.getElementById('c');
   const gl = canvas.getContext('webgl2', {
     alpha:false, antialias:false, premultipliedAlpha:false, preserveDrawingBuffer:false
   });
   const errEl = document.getElementById('err');
-  if (!gl) { errEl.style.display='grid'; return; }
-  if (!gl.getExtension('EXT_color_buffer_float')) { errEl.style.display='grid'; return; }
+  const hintEl = document.getElementById('hint');
 
-  // Ignore resizes triggered during two-finger gestures
+  // Apply UI toggles immediately
+  hintEl.style.display = CONFIG.ui.showHint ? 'block' : 'none';
+  hintEl.textContent = CONFIG.ui.hintText;
+  document.documentElement.style.setProperty('--kyle-hue-period', `${CONFIG.overlay.kyleHuePeriodSec}s`);
+
+  // Graceful abort if the platform can't run this sim
+  if (!gl || !gl.getExtension('EXT_color_buffer_float')) { errEl.style.display='grid'; return; }
+
+  // Track active pointers to avoid resize thrash during pinch-zoom on mobile
   let activePointers = 0;
+
   function fit(force=false) {
     if (activePointers > 0 && !force) return;
-    const dpr = Math.max(1, Math.min(2, window.devicePixelRatio||1));
+    const dpr = Math.max(1, Math.min(CONFIG.perf.dprMax, window.devicePixelRatio||1));
     const w = Math.floor(innerWidth * dpr);
     const h = Math.floor(innerHeight * dpr);
-    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w; canvas.height = h;
+    }
   }
   addEventListener('resize', () => fit(false), { passive:true });
   fit(true);
 
-  /* ---------------- GL HELPERS & SHADERS (do not normally edit) --------- */
+  /* ===================== GL HELPERS ===================== */
   const sh = (t,src)=>{ const s=gl.createShader(t); gl.shaderSource(s,src); gl.compileShader(s);
     if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)+'\n'+src); return s; };
   const prog = (vs,fs)=>{ const p=gl.createProgram(); gl.attachShader(p,sh(gl.VERTEX_SHADER,vs));
@@ -146,28 +263,34 @@ const wall = {
   const vec2 P[3]=vec2[3](vec2(-1.,-1.),vec2(3.,-1.),vec2(-1.,3.));
   out vec2 vUV; void main(){ vec2 p=P[gl_VertexID]; vUV=.5*(p+1.); gl_Position=vec4(p,0.,1.); }`;
 
+  // Advect velocity by itself (semi-Lagrangian)
   const FS_ADVECT=`#version 300 es
   precision highp float; in vec2 vUV; out vec4 o;
   uniform sampler2D uVelocity,uSource; uniform float uDt,uDissipation; uniform vec2 uTexel;
   void main(){ vec2 v=texture(uVelocity,vUV).xy; vec2 uv=vUV-uDt*v*uTexel; vec2 src=texture(uSource,uv).xy;
     o=vec4(src*uDissipation,0.,1.); }`;
+
+  // Advect dye by velocity field
   const FS_ADVECT_DYE=`#version 300 es
   precision highp float; in vec2 vUV; out vec4 o;
   uniform sampler2D uVelocity,uDye; uniform float uDt,uDissipation; uniform vec2 uTexel;
   void main(){ vec2 v=texture(uVelocity,vUV).xy; vec2 uv=vUV-uDt*v*uTexel; vec3 c=texture(uDye,uv).rgb*uDissipation; o=vec4(c,1.); }`;
 
+  // Velocity splat (force injection)
   const FS_SPLAT_V=`#version 300 es
   precision highp float; in vec2 vUV; out vec4 o;
   uniform sampler2D uVelocity; uniform vec2 uPoint,uForce; uniform float uRadius,uAspect;
   void main(){ vec2 base=texture(uVelocity,vUV).xy; vec2 d=vUV-uPoint; d.x*=uAspect;
     float s=exp(-dot(d,d)/(uRadius*uRadius)); o=vec4(base + uForce*s,0.,1.); }`;
 
+  // Dye splat (color injection)
   const FS_SPLAT_D=`#version 300 es
   precision highp float; in vec2 vUV; out vec4 o;
   uniform sampler2D uDye; uniform vec2 uPoint; uniform vec3 uColor; uniform float uRadius,uAspect;
   void main(){ vec3 base=texture(uDye,vUV).rgb; vec2 d=vUV-uPoint; d.x*=uAspect;
     float s=exp(-dot(d,d)/(uRadius*uRadius)); o=vec4(base + uColor*s,1.); }`;
 
+  // Divergence of velocity (for projection)
   const FS_DIVERGENCE=`#version 300 es
   precision highp float; in vec2 vUV; out vec4 o; uniform sampler2D uVelocity; uniform vec2 uTexel;
   void main(){ vec2 L=texture(uVelocity,vUV-vec2(uTexel.x,0.)).xy;
@@ -175,9 +298,13 @@ const wall = {
     vec2 B=texture(uVelocity,vUV-vec2(0.,uTexel.y)).xy;
     vec2 T=texture(uVelocity,vUV+vec2(0.,uTexel.y)).xy;
     float div=(R.x-L.x+T.y-B.y)*.5; o=vec4(div,0.,0.,1.); }`;
+
+  // Slight pressure decay
   const FS_CLEAR=`#version 300 es
   precision highp float; in vec2 vUV; out vec4 o; uniform sampler2D uPressure; uniform float uDissipation;
   void main(){ float p=texture(uPressure,vUV).x*uDissipation; o=vec4(p,0.,0.,1.); }`;
+
+  // Jacobi iterations to solve pressure
   const FS_JACOBI=`#version 300 es
   precision highp float; in vec2 vUV; out vec4 o; uniform sampler2D uPressure,uDivergence; uniform vec2 uTexel;
   void main(){ float L=texture(uPressure,vUV-vec2(uTexel.x,0.)).x;
@@ -185,6 +312,8 @@ const wall = {
     float B=texture(uPressure,vUV-vec2(0.,uTexel.y)).x;
     float T=texture(uPressure,vUV+vec2(0.,uTexel.y)).x;
     float C=texture(uDivergence,vUV).x; float p=(L+R+B+T-C)*.25; o=vec4(p,0.,0.,1.); }`;
+
+  // Subtract pressure gradient from velocity
   const FS_GRADIENT=`#version 300 es
   precision highp float; in vec2 vUV; out vec4 o; uniform sampler2D uVelocity,uPressure; uniform vec2 uTexel;
   void main(){ float L=texture(uPressure,vUV-vec2(uTexel.x,0.)).x;
@@ -192,46 +321,46 @@ const wall = {
     float B=texture(uPressure,vUV-vec2(0.,uTexel.y)).x;
     float T=texture(uPressure,vUV+vec2(0.,uTexel.y)).x;
     vec2 v=texture(uVelocity,vUV).xy - vec2(R-L, T-B)*.5; o=vec4(v,0.,1.); }`;
+
+  // Final tonemapped display of dye
   const FS_DISPLAY=`#version 300 es
   precision highp float; in vec2 vUV; out vec4 o; uniform sampler2D uDye;
   void main(){ vec3 c=texture(uDye,vUV).rgb; c=c/(c+1.); o=vec4(c,1.); }`;
 
-/* ---- NEW: Boundary shader to enforce solid walls ---- */
-const FS_BOUNDARY = `#version 300 es
-precision highp float; in vec2 vUV; out vec4 o;
-uniform sampler2D uVelocity;
-uniform vec2 uTexel;              // 1/width, 1/height of VELOCITY FBO
-uniform float uWallU, uWallV;     // normalized thickness in U and V
-uniform float uBounce;            // normal component multiplier (0 = stick)
-uniform float uFriction;          // tangential multiplier (0..1)
+  // Boundary shader: apply simple solid-wall condition in a band at edges
+  const FS_BOUNDARY = `#version 300 es
+  precision highp float; in vec2 vUV; out vec4 o;
+  uniform sampler2D uVelocity;
+  uniform vec2 uTexel;              // 1/width, 1/height of VELOCITY FBO
+  uniform float uWallU, uWallV;     // normalized thickness in U and V
+  uniform float uBounce;            // normal component multiplier (0 = stick)
+  uniform float uFriction;          // tangential multiplier (0..1)
 
-vec2 applyWall(vec2 v, bool left, bool right, bool bottom, bool top){
-  vec2 outv = v;
-  if (left || right)  { outv.x = -v.x * uBounce; outv.y = v.y * uFriction; }
-  if (bottom || top)  { outv.y = -v.y * uBounce; outv.x = v.x * uFriction; }
-  return outv;
-}
-
-void main(){
-  vec2 v = texture(uVelocity, vUV).xy;
-  bool left   = vUV.x < uWallU;
-  bool right  = vUV.x > 1.0 - uWallU;
-  bool bottom = vUV.y < uWallV;
-  bool top    = vUV.y > 1.0 - uWallV;
-  if (left || right || bottom || top) {
-    v = applyWall(v, left, right, bottom, top);
+  vec2 applyWall(vec2 v, bool left, bool right, bool bottom, bool top){
+    vec2 outv = v;
+    if (left || right)  { outv.x = -v.x * uBounce; outv.y = v.y * uFriction; }
+    if (bottom || top)  { outv.y = -v.y * uBounce; outv.x = v.x * uFriction; }
+    return outv;
   }
-  o = vec4(v, 0.0, 1.0);
-}`;
+  void main(){
+    vec2 v = texture(uVelocity, vUV).xy;
+    bool left   = vUV.x < uWallU;
+    bool right  = vUV.x > 1.0 - uWallU;
+    bool bottom = vUV.y < uWallV;
+    bool top    = vUV.y > 1.0 - uWallV;
+    if (left || right || bottom || top) { v = applyWall(v, left, right, bottom, top); }
+    o = vec4(v, 0.0, 1.0);
+  }`;
 
+  // Programs
   const P_ADVECT_V=prog(VS,FS_ADVECT), P_ADVECT_DYE=prog(VS,FS_ADVECT_DYE),
         P_SPLAT_V=prog(VS,FS_SPLAT_V), P_SPLAT_D=prog(VS,FS_SPLAT_D),
         P_DIVERGENCE=prog(VS,FS_DIVERGENCE), P_CLEAR=prog(VS,FS_CLEAR),
         P_JACOBI=prog(VS,FS_JACOBI), P_GRADIENT=prog(VS,FS_GRADIENT),
-        P_DISPLAY=prog(VS,FS_DISPLAY),
-        P_BOUNDARY=prog(VS,FS_BOUNDARY);
+        P_DISPLAY=prog(VS,FS_DISPLAY), P_BOUNDARY=prog(VS,FS_BOUNDARY);
 
-  function simSize(){ const s=.5; return { w:Math.max(16,(canvas.width*s)|0), h:Math.max(16,(canvas.height*s)|0) }; }
+  // Simulation buffer allocation (double-buffered velocity/dye/pressure)
+  function simSize(){ const s=CONFIG.perf.simScale; return { w:Math.max(16,(canvas.width*s)|0), h:Math.max(16,(canvas.height*s)|0) }; }
   let F=null;
   function alloc(){ const {w,h}=simSize(); return { velocity:dfbo(w,h), dye:dfbo(w,h), pressure:dfbo(w,h), divergence:fbo(w,h), w,h }; }
   function ensure(){ const s=simSize(); if (!F || F.w!==s.w || F.h!==s.h) F=alloc(); }
@@ -239,7 +368,7 @@ void main(){
   function tri(){ gl.drawArrays(gl.TRIANGLES,0,3); }
   gl.disable(gl.BLEND);
 
-  /* ---------------- UNIFORMS CACHE ---------------- */
+  /* ===== Uniform caches for hot paths ===== */
   const loc = {
     splatV: {
       uPoint:gl.getUniformLocation(P_SPLAT_V,'uPoint'),
@@ -257,6 +386,7 @@ void main(){
     }
   };
 
+  /* ===== Splat helpers ===== */
   function splatV(x,y,fx,fy,r,aspect){ if(!F) return;
     gl.useProgram(P_SPLAT_V);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, F.velocity.read.tex);
@@ -283,7 +413,7 @@ void main(){
     target(null); tri();
   }
 
-  /* ---------------- COLOR HELPERS ---------------- */
+  /* ===== Simple HSV -> RGB for rainbow ink ===== */
   function hsv2rgb(h, s, v) {
     const i = Math.floor(h * 6), f = h * 6 - i;
     const p = v * (1 - s), q = v * (1 - f * s), t = v * (1 - (1 - f) * s);
@@ -291,8 +421,12 @@ void main(){
       case 2: return [p, v, t]; case 3: return [p, q, v]; case 4: return [t, p, v]; default: return [v, p, q]; }
   }
 
-  /* ---------------- POINTER (single primary) ---------------- */
-  let ptr = { x:.5, y:.5, vx:0, vy:0, moved:false, down:false, lastMoveT: performance.now(), lastEventT: performance.now() };
+  /* ===================== Pointer tracking (single primary) ===================== */
+  // Live state of the primary pointer (normalized canvas coords and smoothed velocity)
+  const ptr = { x: 0.5, y: 0.5, vx: 0, vy: 0, moved: false, down: false, lastMoveT: performance.now(), lastEventT: performance.now() };
+
+  // virtual pointer for autopilot, matches pointer semantics (position + smoothed velocity)
+  const auto = { x: 0.5, y: 0.5, vx: 0, vy: 0, t: performance.now() };
 
   function setPtrFromEvent(e){
     const now = performance.now();
@@ -304,7 +438,7 @@ void main(){
     const dt = Math.max(1, now - ptr.lastEventT);
     const ivx = ((nx - ptr.x) * 1000) / dt;
     const ivy = ((ny - ptr.y) * 1000) / dt;
-    const s = params.velSmooth; // smoothing blend (0..1)
+    const s = CONFIG.input.velSmooth; // smoothing blend (0..1)
     ptr.vx = (1 - s) * ptr.vx + s * ivx;
     ptr.vy = (1 - s) * ptr.vy + s * ivy;
     ptr.x = nx; ptr.y = ny; ptr.moved = true; ptr.lastMoveT = now; ptr.lastEventT = now;
@@ -323,10 +457,7 @@ void main(){
     setPtrFromEvent(e);
     e.preventDefault();
   }
-  function onUp(e){
-    if (e.isPrimary) { ptr.down = false; }
-    activePointers = Math.max(0, activePointers - 1);
-  }
+  function onUp(e){ if (e.isPrimary) { ptr.down = false; } activePointers = Math.max(0, activePointers - 1); }
 
   canvas.addEventListener('pointerdown', onDown, { passive:false });
   canvas.addEventListener('pointermove', onMove, { passive:false });
@@ -334,11 +465,11 @@ void main(){
   canvas.addEventListener('pointerup', onUp, { passive:true });
   canvas.addEventListener('pointercancel', onUp, { passive:true });
 
-  /* ---------------- SEED ---------------- */
-  let ink=[1,0,0];
+  /* ===================== Seed the canvas with a little color ===================== */
+  /*let ink=[1,0,0];
   function seed(){
     const now = performance.now() * 0.001;
-    const hue = (now * params.rainbowSpeed) % 1;
+    const hue = (now * CONFIG.color.rainbowSpeed) % 1;
     ink = hsv2rgb(hue, 1.0, 1.0);
     ensure();
     for(let i=0;i<6;i++){
@@ -350,14 +481,11 @@ void main(){
 
   ensure(); seed();
 
-  /* ---------------- MAIN LOOP ---------------- */
-  let released=false;
-  let lastT=performance.now();
-
+  /* ===================== Core Simulation Passes ===================== */
   function advectV(){ if(!F) return;
     gl.useProgram(P_ADVECT_V);
-    gl.uniform1f(gl.getUniformLocation(P_ADVECT_V,'uDt'), params.dt);
-    gl.uniform1f(gl.getUniformLocation(P_ADVECT_V,'uDissipation'), params.velDiss);
+    gl.uniform1f(gl.getUniformLocation(P_ADVECT_V,'uDt'), CONFIG.perf.dt);
+    gl.uniform1f(gl.getUniformLocation(P_ADVECT_V,'uDissipation'), CONFIG.dissipation.velocity);
     gl.uniform2f(gl.getUniformLocation(P_ADVECT_V,'uTexel'), 1/F.w, 1/F.h);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, F.velocity.read.tex); gl.uniform1i(gl.getUniformLocation(P_ADVECT_V,'uVelocity'),0);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, F.velocity.read.tex); gl.uniform1i(gl.getUniformLocation(P_ADVECT_V,'uSource'),1);
@@ -365,8 +493,8 @@ void main(){
   }
   function advectD(){ if(!F) return;
     gl.useProgram(P_ADVECT_DYE);
-    gl.uniform1f(gl.getUniformLocation(P_ADVECT_DYE,'uDt'), params.dt);
-    gl.uniform1f(gl.getUniformLocation(P_ADVECT_DYE,'uDissipation'), params.dyeDiss);
+    gl.uniform1f(gl.getUniformLocation(P_ADVECT_DYE,'uDt'), CONFIG.perf.dt);
+    gl.uniform1f(gl.getUniformLocation(P_ADVECT_DYE,'uDissipation'), CONFIG.dissipation.dye);
     gl.uniform2f(gl.getUniformLocation(P_ADVECT_DYE,'uTexel'), 1/F.w, 1/F.h);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, F.velocity.read.tex); gl.uniform1i(gl.getUniformLocation(P_ADVECT_DYE,'uVelocity'),0);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, F.dye.read.tex); gl.uniform1i(gl.getUniformLocation(P_ADVECT_DYE,'uDye'),1);
@@ -380,7 +508,7 @@ void main(){
   }
   function clearPressure(){ if(!F) return;
     gl.useProgram(P_CLEAR);
-    gl.uniform1f(gl.getUniformLocation(P_CLEAR,'uDissipation'), params.presDiss);
+    gl.uniform1f(gl.getUniformLocation(P_CLEAR,'uDissipation'), CONFIG.dissipation.pressure);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, F.pressure.read.tex); gl.uniform1i(gl.getUniformLocation(P_CLEAR,'uPressure'),0);
     target(F.pressure.write); tri(); F.pressure.swap();
   }
@@ -388,7 +516,7 @@ void main(){
     gl.useProgram(P_JACOBI);
     gl.uniform2f(gl.getUniformLocation(P_JACOBI,'uTexel'), 1/F.w, 1/F.h);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, F.divergence.tex); gl.uniform1i(gl.getUniformLocation(P_JACOBI,'uDivergence'),1);
-    for(let i=0;i<params.jacobi;i++){
+    for(let i=0;i<CONFIG.perf.jacobiIters;i++){
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, F.pressure.read.tex); gl.uniform1i(gl.getUniformLocation(P_JACOBI,'uPressure'),0);
       target(F.pressure.write); tri(); F.pressure.swap();
     }
@@ -400,80 +528,111 @@ void main(){
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, F.pressure.read.tex); gl.uniform1i(gl.getUniformLocation(P_GRADIENT,'uPressure'),1);
     target(F.velocity.write); tri(); F.velocity.swap();
   }
-
-  // ---- NEW: Apply solid-wall boundary conditions to velocity ----
   function applyBoundaries(){
-    if (!wall.enabled || !F) return;
+    if (!CONFIG.wall.enabled || !F) return;
     gl.useProgram(P_BOUNDARY);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, F.velocity.read.tex);
     gl.uniform1i(gl.getUniformLocation(P_BOUNDARY,'uVelocity'), 0);
     gl.uniform2f(gl.getUniformLocation(P_BOUNDARY,'uTexel'), 1/F.w, 1/F.h);
     const resMin = Math.min(F.w, F.h);
-    const wallU = wall.thicknessPx / resMin;
+    const wallU = CONFIG.wall.thicknessPx / resMin;
     const wallV = wallU;
     gl.uniform1f(gl.getUniformLocation(P_BOUNDARY,'uWallU'), wallU);
     gl.uniform1f(gl.getUniformLocation(P_BOUNDARY,'uWallV'), wallV);
-    gl.uniform1f(gl.getUniformLocation(P_BOUNDARY,'uBounce'), wall.bounce);
-    gl.uniform1f(gl.getUniformLocation(P_BOUNDARY,'uFriction'), wall.friction);
+    gl.uniform1f(gl.getUniformLocation(P_BOUNDARY,'uBounce'), CONFIG.wall.bounce);
+    gl.uniform1f(gl.getUniformLocation(P_BOUNDARY,'uFriction'), CONFIG.wall.friction);
     target(F.velocity.write); tri(); F.velocity.swap();
   }
+
+  /* ===================== Main Loop ===================== */
+  let released=false;
+  let lastT=performance.now();
 
   function loop(){
     ensure();
     const now=performance.now();
     const dtMs=Math.min(33, now-lastT); lastT=now;
-    const steps=Math.max(1, Math.round(dtMs/(params.dt*1000)));
+    const steps=Math.max(1, Math.round(dtMs/(CONFIG.perf.dt*1000)));
 
-    // pixel -> normalized radii (constant visual size across resolutions)
+    // Compute normalized radii so the brush looks constant across resolutions
     const minDim = Math.min(innerWidth, innerHeight);
-    const scale = Math.max(params.minScale, Math.min(1, minDim / params.baseDimForUnity));
+    const scale = Math.max(CONFIG.brush.minScale, Math.min(1, minDim / CONFIG.brush.baseDimForUnity));
     const resMin = Math.min(F.w, F.h);
-    const normR_splat   = (params.splatPx   * scale) / resMin;
-    const normR_release = (params.releasePx * scale) / resMin;
+    const normR_splat   = (CONFIG.brush.splatPx   * scale) / resMin;
+    const normR_release = (CONFIG.brush.releasePx * scale) / resMin;
     const aspect = F.w / F.h;
 
     for(let i=0;i<steps;i++){
       const t = performance.now() * 0.001;
-      const hue = (t * params.rainbowSpeed) % 1;
+      const hue = (t * CONFIG.color.rainbowSpeed) % 1;
       ink = hsv2rgb(hue, 1.0, 1.0);
 
-      // Idle autopilot (optional)
-      const idleLong = IDLE_ENABLED && (now - ptr.lastMoveT) > params.autoStartMs && !ptr.down;
+      // Autopilot: subtle motion when idle, now using true velocity like the pointer
+      const idleLong = CONFIG.autopilot.enabled &&
+                       (now - ptr.lastMoveT) > CONFIG.autopilot.idleStartMs &&
+                       !ptr.down;
+
       if (idleLong) {
-        const dt = Math.max(1, dtMs);
-        const t2  = now * 0.001;
-        const ax = 0.5 + 0.27 * Math.sin(t2*0.35) * Math.cos(t2*0.17);
-        const ay = 0.5 + 0.27 * Math.sin(t2*0.23 + 1.3) * Math.cos(t2*0.41);
-        const avx = (ax - 0.5) * (1000 / dt);
-        const avy = (ay - 0.5) * (1000 / dt);
-        const fx = avx * params.autoMoveGain;
-        const fy = avy * params.autoMoveGain;
-        const r  = (params.autoRadiusPx ? (params.autoRadiusPx * scale) / resMin : normR_splat);
+        const t2 = now * 0.001;
+
+        // Parametric path (same as before)
+        const ax = 0.5 + 0.4 * Math.sin(t2 * 0.1) * Math.cos(t2 * 0.7);
+        const ay = 0.5 + 0.4 * Math.sin(t2 * 0.1+1.3) * Math.cos(t2 * 1.0);
+
+        // Differentiate position (finite difference) to get velocity like the real pointer
+        const dtMsAuto = Math.max(1, now - auto.t);
+        const vx_i = ((ax - auto.x) * 1000) / dtMsAuto;   // normalized units per second
+        const vy_i = ((ay - auto.y) * 1000) / dtMsAuto;
+
+        // Optional smoothing: reuse pointer vel smoothing
+        const s = CONFIG.input.velSmooth;
+        auto.vx = (1 - s) * auto.vx + s * vx_i;
+        auto.vy = (1 - s) * auto.vy + s * vy_i;
+
+        // Update state
+        auto.x = ax; auto.y = ay; auto.t = now;
+
+        // Use the same gain path as the pointer so it “pushes the wavefront”
+        const fx = auto.vx * CONFIG.input.moveGain;
+        const fy = auto.vy * CONFIG.input.moveGain;
+
+        const minDim = Math.min(innerWidth, innerHeight);
+        const scale = Math.max(CONFIG.brush.minScale, Math.min(1, minDim / CONFIG.brush.baseDimForUnity));
+        const resMin = Math.min(F.w, F.h);
+        const r  = (CONFIG.autopilot.radiusPx ? (CONFIG.autopilot.radiusPx * scale) / resMin
+                                              : (CONFIG.brush.splatPx * scale) / resMin);
+        const aspect = F.w / F.h;
+
         splatV(ax, ay, fx, fy, r, aspect);
-        const rgb = hsv2rgb(((t2*params.rainbowSpeed)+0.5)%1, 1, 1);
-        splatD(ax, ay, rgb[0]*params.autoColorGain, rgb[1]*params.autoColorGain, rgb[2]*params.autoColorGain, r*1.1, aspect);
+
+        const rgb = hsv2rgb(((t2 * CONFIG.color.rainbowSpeed) + 0.5) % 1, 1, 1);
+        splatD(ax, ay,
+               rgb[0] * CONFIG.autopilot.colorGain,
+               rgb[1] * CONFIG.autopilot.colorGain,
+               rgb[2] * CONFIG.autopilot.colorGain,
+               r * 1.1, aspect);
       }
 
       // Continuous injection from pointer movement
       if (ptr.moved || ptr.down){
-        const fx = ptr.vx * params.moveGain;
-        const fy = ptr.vy * params.moveGain;
+        const fx = ptr.vx * CONFIG.input.moveGain;
+        const fy = ptr.vy * CONFIG.input.moveGain;
         splatV(ptr.x, ptr.y, fx, fy, normR_splat, aspect);
         splatD(ptr.x, ptr.y, ink[0], ink[1], ink[2], normR_splat*1.2, aspect);
         ptr.moved=false;
       }
 
-      // Release burst after pause
-      const idle = (now - ptr.lastMoveT) > params.RELEASE_DELAY;
+      // Release burst after a brief pause
+      const idle = (now - ptr.lastMoveT) > CONFIG.input.releaseDelayMs;
       if (!released && idle && !idleLong){
         const speed = Math.hypot(ptr.vx, ptr.vy);
-        if (speed > params.minReleaseSpeed){
-          const clamped = Math.min(speed, params.maxReleaseSpeed);
+        if (speed > CONFIG.input.minReleaseSpeed){
+          const clamped = Math.min(speed, CONFIG.input.maxReleaseSpeed);
           const nx = ptr.vx / (speed || 1e-6);
           const ny = ptr.vy / (speed || 1e-6);
-          const fx = nx * params.releaseGain * clamped;
-          const fy = ny * params.releaseGain * clamped;
+          const fx = nx * CONFIG.input.releaseGain * clamped;
+          const fy = ny * CONFIG.input.releaseGain * clamped;
           splatV(ptr.x, ptr.y, fx, fy, normR_release, aspect);
           const gain = 0.35 + 0.35*clamped;
           splatD(ptr.x, ptr.y, ink[0]*gain, ink[1]*gain, ink[2]*gain, normR_release*0.9, aspect);
@@ -488,13 +647,27 @@ void main(){
       clearPressure();
       pressureSolve();
       subtractGradient();
-      applyBoundaries(); // enforce solid walls
+      applyBoundaries();
       advectD();
     }
+
     show();
     requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
+
+  // ===== Lightweight self-tests ("test cases") to catch obvious regressions =====
+  function selfTests(){
+    try {
+      console.assert(typeof CONFIG.perf.dt === 'number' && CONFIG.perf.dt > 0, 'CONFIG.perf.dt invalid');
+      console.assert(P_ADVECT_V && P_ADVECT_DYE && P_SPLAT_V && P_SPLAT_D, 'Shader programs missing');
+      console.assert(loc.splatV.uPoint && loc.splatD.uPoint, 'Uniform locations missing');
+      console.log('[self-test] basic checks passed');
+    } catch (e) {
+      console.error('[self-test] failed', e);
+    }
+  }
+  selfTests();
 
   // Handle context loss gracefully
   canvas.addEventListener('webglcontextlost', (e)=>{ e.preventDefault(); }, false);
@@ -502,55 +675,58 @@ void main(){
 })();
 </script>
 
-<!-- ======================= OVERLAY TEXT (added without modifying fluid code) ======================= -->
-<style>
-  .overlay { position: fixed; inset: 0; z-index: 10; pointer-events: none; }
-  .overlay .letter { position: absolute; font-size: clamp(24px, 6vw, 48px); white-space: pre; color: #ffffff; text-shadow: 0 0 6px rgba(255,255,255,0.25); }
-  .overlay .kyle-link { pointer-events: auto; font-weight: 700; text-decoration: none; --hue: 0; color: hsl(var(--hue),100%,75%); text-shadow: 0 0 6px hsla(var(--hue),100%,60%,0.7), 0 0 14px hsla(var(--hue),100%,60%,0.35), 0 0 28px hsla(var(--hue),100%,60%,0.15); animation: hue-shift 12s linear infinite; }
-  @keyframes hue-shift { from { --hue: 0; } to { --hue: 360; } }
-</style>
+<!-- ======================= OVERLAY TEXT (parameterized) ======================= -->
 <div id="layer" class="overlay" aria-hidden="false"></div>
 <script>
-  // Text: keep exact placement from your original index
-  (function(){
-    const lines = [
-      "hi my name is kyle",
-      ""
-    ];
-    const container = document.getElementById('layer');
+(function overlay(){
+  const container = document.getElementById('layer');
 
-    function layout(){
-      container.innerHTML='';
-      const centerX = window.innerWidth / 2;
-      const lineHeight = window.innerHeight / 3;
-      const spacingY = 60;
+  function layout(){
+    container.innerHTML='';
 
-      const placed = [];
-      lines.forEach((line, li)=>{
-        // temp measure spans
-        const meas = line.split('').map(ch=>{
-          const s=document.createElement('span'); s.className='letter'; s.textContent = ch===' ' ? '\u00A0' : ch; container.appendChild(s); return {el:s};
-        });
-        meas.forEach(m=>{ const r=m.el.getBoundingClientRect(); m.width=r.width; m.height=r.height; });
-        const total = meas.reduce((a,m)=>a+m.width,0);
-        let x = centerX - total/2; const y = lineHeight + spacingY*li;
-        meas.forEach(m=>{ m.x=x; m.y=y; m.el.style.transform=`translate(${m.x}px, ${m.y}px)`; placed.push(m); x += m.width; });
+    // Vertical baseline & spacing from CONFIG
+    const centerX = window.innerWidth / 2;
+    const lineHeight = window.innerHeight / CONFIG.overlay.centerYDiv;
+    const spacingY = CONFIG.overlay.lineSpacing;
+
+    const placed = [];
+    CONFIG.overlay.lines.forEach((line, li)=>{
+      // Temp spans for measurement so we can center precisely per-character
+      const meas = line.split('').map(ch=>{
+        const s=document.createElement('span'); s.className='letter'; s.textContent = ch===' ' ? '\u00A0' : ch; container.appendChild(s); return {el:s};
       });
+      // Measure widths once in-DOM
+      meas.forEach(m=>{ const r=m.el.getBoundingClientRect(); m.width=r.width; m.height=r.height; });
+      const total = meas.reduce((a,m)=>a+m.width,0);
+      let x = centerX - total/2; const y = lineHeight + spacingY*li;
+      meas.forEach(m=>{ m.x=x; m.y=y; m.el.style.transform=`translate(${m.x}px, ${m.y}px)`; placed.push(m); x += m.width; });
+    });
 
-      // find kyle
-      let idx=[]; placed.forEach((p,i)=>{ if(p.el.textContent.toLowerCase()==='k' && placed[i+1]?.el.textContent.toLowerCase()==='y' && placed[i+2]?.el.textContent.toLowerCase()==='l' && placed[i+3]?.el.textContent.toLowerCase()==='e'){ idx=[i,i+1,i+2,i+3]; }});
-      if(idx.length===4){
-        const first=placed[idx[0]], last=placed[idx[3]];
-        const link=document.createElement('a'); link.href='resume.pdf'; link.target='_blank'; link.rel='noopener noreferrer'; link.className='letter kyle-link'; link.textContent='kyle'; link.style.transform=`translate(${first.x}px, ${first.y}px)`;
-        // hide originals
-        idx.forEach(i=>{ placed[i].el.style.visibility='hidden'; });
-        container.appendChild(link);
-      }
+    // Convert first occurrence of CONFIG.overlay.linkWord into an anchor
+    const target = CONFIG.overlay.linkWord.toLowerCase();
+    let idx=[]; placed.forEach((p,i)=>{
+      if(p.el.textContent.toLowerCase()===target[0]
+         && placed[i+1]?.el.textContent.toLowerCase()===target[1]
+         && placed[i+2]?.el.textContent.toLowerCase()===target[2]
+         && placed[i+3]?.el.textContent.toLowerCase()===target[3]){ idx=[i,i+1,i+2,i+3]; }
+    });
+    if(idx.length===4){
+      const first=placed[idx[0]];
+      const link=document.createElement('a');
+      link.href=CONFIG.overlay.linkHref;
+      if (CONFIG.overlay.linkNewTab) { link.target='_blank'; link.rel='noopener noreferrer'; }
+      link.className='letter kyle-link';
+      link.textContent=CONFIG.overlay.linkWord;
+      link.style.transform=`translate(${first.x}px, ${first.y}px)`;
+      // Hide originals under the link
+      idx.forEach(i=>{ placed[i].el.style.visibility='hidden'; });
+      container.appendChild(link);
     }
+  }
 
-    layout();
-    addEventListener('resize', layout);
-  })();
+  layout();
+  addEventListener('resize', layout);
+})();
 </script>
 </body>
 </html>
