@@ -34,11 +34,7 @@
     --overlay-size-max: 48px;        /* clamp upper font size */
 
     /* Link (the word "kyle") */
-    --kyle-glow-hue: 0;              /* animated via keyframes */
     --kyle-glow-light: 75%;          /* perceived text lightness */
-    --kyle-shadow-1: 0 0 6px hsla(var(--kyle-glow-hue),100%,60%,0.70);
-    --kyle-shadow-2: 0 0 14px hsla(var(--kyle-glow-hue),100%,60%,0.35);
-    --kyle-shadow-3: 0 0 28px hsla(var(--kyle-glow-hue),100%,60%,0.15);
 
     /* Hints */
     --hint-font-size: 12px;
@@ -92,6 +88,7 @@
 
   /* ===================== OVERLAY TEXT LAYER ===================== */
   .overlay { position: fixed; inset: 0; z-index: 10; pointer-events: none; }
+
   .overlay .letter {
     position: absolute;
     font-size: clamp(var(--overlay-size-min), 6vw, var(--overlay-size-max));
@@ -100,15 +97,54 @@
     text-shadow: var(--overlay-shadow);
     font-family: var(--font-stack);
   }
+
+  /* "kyle" rainbow glow */
   .overlay .kyle-link {
     pointer-events: auto; /* allow clicking */
     font-weight: 700;
     text-decoration: none;
-    color: hsl(var(--kyle-glow-hue), 100%, var(--kyle-glow-light));
-    text-shadow: var(--kyle-shadow-1), var(--kyle-shadow-2), var(--kyle-shadow-3);
-    animation: hue-shift var(--kyle-hue-period, 12s) linear infinite;
+    --kyle-glow-light: 75%;
+    animation: kyle-rainbow var(--kyle-hue-period, 12s) linear infinite;
   }
-  @keyframes hue-shift { from { --kyle-glow-hue: 0; } to { --kyle-glow-hue: 360; } }
+
+  /* We animate both the base text color and the glow. */
+  @keyframes kyle-rainbow {
+    0% {
+      color: hsl(0,   100%, var(--kyle-glow-light));
+      text-shadow:
+        0 0 6px   hsla(0,   100%,60%,0.70),
+        0 0 14px  hsla(0,   100%,60%,0.35),
+        0 0 28px  hsla(0,   100%,60%,0.15);
+    }
+    25% {
+      color: hsl(120, 100%, var(--kyle-glow-light));
+      text-shadow:
+        0 0 6px   hsla(120, 100%,60%,0.70),
+        0 0 14px  hsla(120, 100%,60%,0.35),
+        0 0 28px  hsla(120, 100%,60%,0.15);
+    }
+    50% {
+      color: hsl(240, 100%, var(--kyle-glow-light));
+      text-shadow:
+        0 0 6px   hsla(240, 100%,60%,0.70),
+        0 0 14px  hsla(240, 100%,60%,0.35),
+        0 0 28px  hsla(240, 100%,60%,0.15);
+    }
+    75% {
+      color: hsl(300, 100%, var(--kyle-glow-light));
+      text-shadow:
+        0 0 6px   hsla(300, 100%,60%,0.70),
+        0 0 14px  hsla(300, 100%,60%,0.35),
+        0 0 28px  hsla(300, 100%,60%,0.15);
+    }
+    100% {
+      color: hsl(360, 100%, var(--kyle-glow-light));
+      text-shadow:
+        0 0 6px   hsla(360, 100%,60%,0.70),
+        0 0 14px  hsla(360, 100%,60%,0.35),
+        0 0 28px  hsla(360, 100%,60%,0.15);
+    }
+  }
 </style>
 </head>
 <body>
@@ -198,7 +234,7 @@ const CONFIG = {
 
   /* ---------- UI bits ---------- */
   ui: {
-    showHint: true,          // Toggle the bottom-left hint chip.
+    showHint: false,          // Toggle the bottom-left hint chip.
     hintText: "V.v.V"        // Content of the hint.
   }
 };
@@ -465,22 +501,6 @@ so it's easy to remove if you ever want default browser gestures back.
   canvas.addEventListener('pointerup', onUp, { passive:true });
   canvas.addEventListener('pointercancel', onUp, { passive:true });
 
-  /* ===================== Seed the canvas with a little color ===================== */
-  /*let ink=[1,0,0];
-  function seed(){
-    const now = performance.now() * 0.001;
-    const hue = (now * CONFIG.color.rainbowSpeed) % 1;
-    ink = hsv2rgb(hue, 1.0, 1.0);
-    ensure();
-    for(let i=0;i<6;i++){
-      const x=.5+(Math.random()-.5)*.2, y=.5+(Math.random()-.5)*.2, k=.4+Math.random()*.3;
-      const aspect = F.w / F.h;
-      splatD(x,y, ink[0]*k, ink[1]*k, ink[2]*k, .01, aspect);
-    }
-  }
-
-  ensure(); seed();
-
   /* ===================== Core Simulation Passes ===================== */
   function advectV(){ if(!F) return;
     gl.useProgram(P_ADVECT_V);
@@ -704,7 +724,8 @@ so it's easy to remove if you ever want default browser gestures back.
 
     // Convert first occurrence of CONFIG.overlay.linkWord into an anchor
     const target = CONFIG.overlay.linkWord.toLowerCase();
-    let idx=[]; placed.forEach((p,i)=>{
+    let idx=[];
+    placed.forEach((p,i)=>{
       if(p.el.textContent.toLowerCase()===target[0]
          && placed[i+1]?.el.textContent.toLowerCase()===target[1]
          && placed[i+2]?.el.textContent.toLowerCase()===target[2]
